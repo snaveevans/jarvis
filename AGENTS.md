@@ -8,14 +8,15 @@ Jarvis is a Node.js + TypeScript AI assistant project using native TypeScript ex
 
 ## Build/Test/Lint Commands
 
-Since this is early-stage, commands will be added as tooling is introduced:
-
 ```bash
 # Run TypeScript files directly (native execution)
 node --experimental-strip-types src/index.ts
 
-# Run a single test (once test framework is added)
-# npm test -- path/to/test.ts
+# Run all tests
+npm test
+
+# Run a single test file
+node --experimental-strip-types --test src/path/to/file.test.ts
 
 # Lint (once linter is configured)
 # npm run lint
