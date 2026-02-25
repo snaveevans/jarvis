@@ -19,15 +19,23 @@ program
   .command('chat')
   .description('Send a message to the LLM')
   .argument('<message>', 'Message to send')
-  .option('-m, --model <model>', 'Model to use', 'hf:deepseek-ai/DeepSeek-V3-0324')
+  .option('-m, --model <model>', 'Model to use (or set DEFAULT_MODEL env var)')
   .option('-t, --temperature <temp>', 'Temperature (0.0-2.0)', '0.7')
   .option('--max-tokens <tokens>', 'Maximum tokens to generate')
   .option('-s, --system <prompt>', 'System prompt')
   .option('--stream', 'Stream the response', false)
   .action(async (message, options) => {
     try {
+      const model = options.model ?? process.env.DEFAULT_MODEL
+      
+      if (!model) {
+        console.error('Error: Model is required. Either use -m/--model flag or set DEFAULT_MODEL environment variable.')
+        console.error('\nRun "jarvis list-models" to see available models.')
+        process.exit(1)
+      }
+      
       const client = new LLMClient({
-        defaultModel: options.model,
+        defaultModel: model,
       })
 
       const messages: ChatMessage[] = []
@@ -61,7 +69,14 @@ program
       }
     } catch (error) {
       if (error instanceof Error) {
-        console.error('Error:', error.message)
+        const msg = error.message.toLowerCase()
+        if (msg.includes('model') && (msg.includes('not found') || msg.includes('404'))) {
+          console.error('Error: Model not found or not accessible.')
+          console.error(`Model: ${model}`)
+          console.error('\nRun "jarvis list-models" to see available models.')
+        } else {
+          console.error('Error:', error.message)
+        }
         process.exit(1)
       }
       throw error

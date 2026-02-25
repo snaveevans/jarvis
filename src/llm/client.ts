@@ -41,7 +41,7 @@ export class LLMClient {
       baseURL: config.baseUrl ?? BASE_URL,
     })
     
-    this.defaultModel = config.defaultModel ?? 'hf:deepseek-ai/DeepSeek-V3-0324'
+    this.defaultModel = config.defaultModel ?? process.env.DEFAULT_MODEL ?? ''
   }
 
   private mapError(error: unknown): never {
