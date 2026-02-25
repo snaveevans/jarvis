@@ -200,3 +200,42 @@ describe('Component', () => {
 - No compilation step needed - types are stripped at runtime
 - Type errors won't prevent execution; use IDE/editor for type checking
 - Parameter properties are NOT supported (don't use `constructor(public readonly foo: string)`)
+
+## Copilot Session Instructions (Merged)
+
+### Build, test, and lint commands
+
+Jarvis runs TypeScript directly in Node.js (no build step).
+
+```bash
+# CLI smoke check
+node --experimental-strip-types src/cli.ts --help
+
+# Full test suite
+npm test
+
+# Run one test file
+node --experimental-strip-types --test src/llm/client.test.ts
+node --experimental-strip-types --test src/llm/types.test.ts
+```
+
+There is currently no lint script in `package.json`.
+
+### High-level architecture
+
+- `src/cli.ts` is the executable entrypoint (`jarvis`) and command router (Commander). It loads `.env`, parses CLI flags, and calls into the LLM layer.
+- `src/llm/client.ts` wraps the OpenAI SDK against synthetic.new's OpenAI-compatible endpoint and maps SDK/API failures into local typed errors in `src/llm/errors.ts`.
+- `src/llm/chat-with-tools.ts` runs the tool-calling loop: send tool defs, execute returned tool calls, append tool outputs, and continue up to `MAX_TOOL_ITERATIONS` (5).
+- `src/tools/index.ts` is the tool registry/dispatcher. `availableTools` drives `getToolDefinitions()` and `executeTool()`.
+- `src/tools/read-file.ts` is the current concrete tool implementation; it follows the `Tool` contract from `src/tools/types.ts`.
+- `src/llm/types.ts` holds shared message/request/response and tool schemas used by CLI, client, and tool orchestration; `src/llm/index.ts` is the public export surface.
+
+### Key repository conventions
+
+- Runtime is Node.js v22+ with `--experimental-strip-types`, including the shebang in `src/cli.ts`.
+- Use ESM imports with explicit `.ts` extensions throughout `src/**`.
+- `chat` and `chat-with-tools` require a model via `--model` or `DEFAULT_MODEL`; `LLMClient` requires `SYNTHETIC_API_KEY` unless passed in programmatically.
+- Tool-call arguments are JSON strings (`call.function.arguments`) and are parsed in `executeTool`; tool handlers return `{ content, error? }` instead of throwing through the loop.
+- Tests use Node's native test runner (`node:test` + `node:assert`) with files colocated as `*.test.ts`.
+- For architecture-level decisions, use and update `docs/decisions.md` (lightweight decision log format).
+- Keep code changes incremental and focused, consistent with the project direction in `README.md`.
