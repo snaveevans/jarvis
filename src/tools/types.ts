@@ -7,6 +7,7 @@ export interface Tool {
   name: string
   description: string
   parameters: Record<string, unknown>
+  timeoutMs?: number
   execute: (args: Record<string, unknown>) => Promise<ToolResult>
 }
 

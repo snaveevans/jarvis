@@ -20,8 +20,19 @@ src/
 │   └── *.test.ts          # Unit tests
 └── tools/
     ├── types.ts           # Tool type definitions
-    ├── read-file.ts       # Read file tool implementation
-    └── index.ts           # Tool registry
+    ├── common.ts          # Shared safety and output helpers
+    ├── read.ts            # Read tool (files/directories)
+    ├── glob.ts            # File path pattern search
+    ├── grep.ts            # Content regex search
+    ├── edit.ts            # Exact-match surgical edits
+    ├── write.ts           # File creation/overwrite
+    ├── shell.ts           # Guarded shell execution
+    ├── web-fetch.ts       # Read-only web fetching
+    ├── ask-user.ts        # User clarification interface
+    ├── todo-list.ts       # In-session task tracking interface
+    ├── sub-agent.ts       # Sub-agent delegation interface
+    ├── read-file.ts       # Backward-compatible read_file alias
+    └── index.ts           # Tool registry and execution
 ```
 
 ## Build/Test/Lint Commands
@@ -188,10 +199,11 @@ describe('Component', () => {
 ## Development Workflow
 
 1. Check `docs/decisions.md` before making architectural changes
-2. Write code incrementally with fast feedback loops
-3. Add tests for new functionality
-4. Update this file when adding new tooling
-5. Commit with conventional commit messages (e.g., `feat:`, `fix:`, `docs:`)
+2. Follow `docs/tool-spec.md` when adding or changing tool capabilities/safeguards
+3. Write code incrementally with fast feedback loops
+4. Add tests for new functionality
+5. Update this file when adding new tooling
+6. Commit with conventional commit messages (e.g., `feat:`, `fix:`, `docs:`)
 
 ## Node.js Native TypeScript
 

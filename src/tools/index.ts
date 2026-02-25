@@ -1,7 +1,30 @@
+import { askUserTool } from './ask-user.ts'
+import { editTool } from './edit.ts'
+import { globTool } from './glob.ts'
+import { grepTool } from './grep.ts'
+import { readTool } from './read.ts'
 import { readFileTool } from './read-file.ts'
+import { shellTool } from './shell.ts'
+import { subAgentTool } from './sub-agent.ts'
+import { todoListTool } from './todo-list.ts'
+import { webFetchTool } from './web-fetch.ts'
+import { writeTool } from './write.ts'
 import type { Tool, ToolResult, ToolCall } from './types.ts'
+import { DEFAULT_TOOL_TIMEOUT_MS, withTimeout } from './common.ts'
 
-export const availableTools: Tool[] = [readFileTool]
+export const availableTools: Tool[] = [
+  readTool,
+  globTool,
+  grepTool,
+  editTool,
+  writeTool,
+  shellTool,
+  askUserTool,
+  todoListTool,
+  webFetchTool,
+  subAgentTool,
+  readFileTool,
+]
 
 export function getToolDefinitions(): Array<{
   type: 'function'
@@ -33,7 +56,12 @@ export async function executeTool(call: ToolCall): Promise<ToolResult> {
 
   try {
     const args = JSON.parse(call.function.arguments)
-    return await tool.execute(args)
+    const timeoutMs = tool.timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS
+    return await withTimeout(
+      async () => await tool.execute(args),
+      timeoutMs,
+      tool.name
+    )
   } catch (error) {
     return {
       content: '',

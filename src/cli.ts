@@ -146,7 +146,7 @@ program
       } else {
         messages.push({
           role: 'system',
-          content: 'You are a helpful assistant with access to tools. You can read files using the read_file tool. Use it when the user asks about file contents.',
+          content: 'You are a helpful assistant with access to tools: read, glob, grep, edit, write, shell, ask_user, todo_list, web_fetch, sub_agent, and read_file. Prefer specialized tools over shell for file operations.',
         })
       }
 

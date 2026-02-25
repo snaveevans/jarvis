@@ -1,9 +1,9 @@
-import { readFile } from 'node:fs/promises'
 import type { Tool, ToolResult } from './types.ts'
+import { readTool } from './read.ts'
 
 export const readFileTool: Tool = {
   name: 'read_file',
-  description: 'Read the contents of a file at the specified path. Returns the file content as a string.',
+  description: 'Backward-compatible alias of read(filePath).',
   parameters: {
     type: 'object',
     properties: {
@@ -24,28 +24,6 @@ export const readFileTool: Tool = {
       }
     }
 
-    try {
-      const content = await readFile(path, 'utf-8')
-      return {
-        content,
-      }
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        return {
-          content: '',
-          error: `File not found: ${path}`,
-        }
-      }
-      if ((error as NodeJS.ErrnoException).code === 'EACCES') {
-        return {
-          content: '',
-          error: `Permission denied: ${path}`,
-        }
-      }
-      return {
-        content: '',
-        error: `Error reading file: ${error instanceof Error ? error.message : String(error)}`,
-      }
-    }
+    return await readTool.execute({ filePath: path })
   },
 }
