@@ -23,6 +23,30 @@ node --experimental-strip-types --test src/path/to/file.test.ts
 
 # Format (once formatter is configured)
 # npm run format
+
+# Run CLI
+node --experimental-strip-types src/cli.ts --help
+node --experimental-strip-types src/cli.ts chat "Hello!"
+node --experimental-strip-types src/cli.ts list-models
+```
+
+## CLI Usage
+
+The `jarvis` CLI provides commands to interact with the LLM:
+
+```bash
+# Get help
+jarvis --help
+
+# Chat with the LLM
+jarvis chat "What is the capital of France?"
+jarvis chat "Explain quantum computing" --stream
+jarvis chat "Write a poem" -m "hf:model-name" -t 0.9
+jarvis chat "Hello" --max-tokens 50
+
+# List available models
+jarvis list-models
+jarvis list-models --json
 ```
 
 ## Code Style Guidelines

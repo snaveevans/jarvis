@@ -1,0 +1,94 @@
+#!/usr/bin/env node --experimental-strip-types
+
+import { Command } from 'commander'
+import { LLMClient } from './llm/index.ts'
+import type { ChatMessage } from './llm/index.ts'
+
+const program = new Command()
+
+program
+  .name('jarvis')
+  .description('AI assistant CLI using synthetic.new API')
+  .version('1.0.0')
+
+program
+  .command('chat')
+  .description('Send a message to the LLM')
+  .argument('<message>', 'Message to send')
+  .option('-m, --model <model>', 'Model to use', 'hf:deepseek-ai/DeepSeek-V3-0324')
+  .option('-t, --temperature <temp>', 'Temperature (0.0-2.0)', '0.7')
+  .option('--max-tokens <tokens>', 'Maximum tokens to generate')
+  .option('-s, --system <prompt>', 'System prompt')
+  .option('--stream', 'Stream the response', false)
+  .action(async (message, options) => {
+    try {
+      const client = new LLMClient({
+        defaultModel: options.model,
+      })
+
+      const messages: ChatMessage[] = []
+      
+      if (options.system) {
+        messages.push({ role: 'system', content: options.system })
+      }
+      
+      messages.push({ role: 'user', content: message })
+
+      if (options.stream) {
+        process.stdout.write('Thinking...\n\n')
+        
+        for await (const chunk of client.streamChat(messages, {
+          temperature: parseFloat(options.temperature),
+          max_tokens: options.maxTokens ? parseInt(options.maxTokens) : undefined,
+        })) {
+          const content = chunk.choices[0]?.delta?.content
+          if (content) {
+            process.stdout.write(content)
+          }
+        }
+        process.stdout.write('\n')
+      } else {
+        const response = await client.chat(messages, {
+          temperature: parseFloat(options.temperature),
+          max_tokens: options.maxTokens ? parseInt(options.maxTokens) : undefined,
+        })
+
+        console.log(response.choices[0]?.message?.content)
+      }
+    } catch (error) {
+      if (error instanceof Error) {
+        console.error('Error:', error.message)
+        process.exit(1)
+      }
+      throw error
+    }
+  })
+
+program
+  .command('list-models')
+  .description('List available models')
+  .option('-j, --json', 'Output as JSON')
+  .action(async (options) => {
+    try {
+      const client = new LLMClient()
+      const models = await client.listModels()
+
+      if (options.json) {
+        console.log(JSON.stringify(models, null, 2))
+      } else {
+        console.log('Available models:\n')
+        for (const model of models) {
+          console.log(`  ${model.id}`)
+        }
+        console.log(`\nTotal: ${models.length} models`)
+      }
+    } catch (error) {
+      if (error instanceof Error) {
+        console.error('Error:', error.message)
+        process.exit(1)
+      }
+      throw error
+    }
+  })
+
+program.parse()
