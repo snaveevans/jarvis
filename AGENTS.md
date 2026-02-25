@@ -34,6 +34,17 @@ node --experimental-strip-types src/cli.ts list-models
 
 The `jarvis` CLI provides commands to interact with the LLM:
 
+### Setup
+
+Copy `.env.example` to `.env` and add your API key:
+
+```bash
+cp .env.example .env
+# Edit .env and add your SYNTHETIC_API_KEY
+```
+
+### Commands
+
 ```bash
 # Get help
 jarvis --help

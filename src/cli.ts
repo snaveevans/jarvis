@@ -1,6 +1,10 @@
 #!/usr/bin/env node --experimental-strip-types
 
+import { config } from 'dotenv'
 import { Command } from 'commander'
+
+// Load environment variables from .env file
+config()
 import { LLMClient } from './llm/index.ts'
 import type { ChatMessage } from './llm/index.ts'
 
