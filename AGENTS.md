@@ -2,37 +2,53 @@
 
 ## Project Overview
 
-Jarvis is a Node.js + TypeScript AI assistant project using native TypeScript execution (no build step required).
+Jarvis is a Node.js + TypeScript AI assistant project using native TypeScript execution (no build step required). It provides an LLM client wrapper around OpenAI-compatible APIs (synthetic.new) with tool calling capabilities.
 
 **Runtime**: Node.js v22+ with `--experimental-strip-types`
+
+## Project Structure
+
+```
+src/
+├── cli.ts                 # Main CLI entry point (Commander.js)
+├── llm/
+│   ├── client.ts          # LLMClient - OpenAI SDK wrapper
+│   ├── chat-with-tools.ts # Tool execution orchestration
+│   ├── types.ts           # TypeScript interfaces
+│   ├── errors.ts          # Custom error classes
+│   ├── index.ts           # Public exports
+│   └── *.test.ts          # Unit tests
+└── tools/
+    ├── types.ts           # Tool type definitions
+    ├── read-file.ts       # Read file tool implementation
+    └── index.ts           # Tool registry
+```
 
 ## Build/Test/Lint Commands
 
 ```bash
 # Run TypeScript files directly (native execution)
 node --experimental-strip-types src/index.ts
+node --experimental-strip-types src/cli.ts --help
 
 # Run all tests
 npm test
 
 # Run a single test file
-node --experimental-strip-types --test src/path/to/file.test.ts
+node --experimental-strip-types --test src/llm/client.test.ts
+node --experimental-strip-types --test src/llm/types.test.ts
+
+# Run specific test by pattern (not supported natively, run full file)
+node --experimental-strip-types --test src/llm/client.test.ts
 
 # Lint (once linter is configured)
 # npm run lint
 
 # Format (once formatter is configured)
 # npm run format
-
-# Run CLI
-node --experimental-strip-types src/cli.ts --help
-node --experimental-strip-types src/cli.ts chat "Hello!"
-node --experimental-strip-types src/cli.ts list-models
 ```
 
 ## CLI Usage
-
-The `jarvis` CLI provides commands to interact with the LLM:
 
 ### Setup
 
@@ -40,7 +56,7 @@ Copy `.env.example` to `.env` and add your API key:
 
 ```bash
 cp .env.example .env
-# Edit .env and add your SYNTHETIC_API_KEY
+# Edit .env and add your SYNTHETIC_API_KEY and DEFAULT_MODEL
 ```
 
 ### Commands
@@ -55,6 +71,10 @@ jarvis chat "Explain quantum computing" --stream
 jarvis chat "Write a poem" -m "hf:model-name" -t 0.9
 jarvis chat "Hello" --max-tokens 50
 
+# Chat with tool calling (read_file)
+jarvis chat-with-tools "Read README.md and summarize it"
+jarvis chat-with-tools "What does package.json contain?"
+
 # List available models
 jarvis list-models
 jarvis list-models --json
@@ -68,13 +88,28 @@ jarvis list-models --json
 - Prefer explicit types over implicit inference for function parameters and return types
 - Use `interface` for object shapes, `type` for unions/complex types
 - Avoid `any`; use `unknown` with type guards when type is uncertain
+- Use type imports for types: `import type { Foo } from './types.ts'`
 
 ### Imports
 
 - Use ES modules (`import/export`) exclusively
-- Group imports: 1) external libraries, 2) internal modules, 3) types
-- Use absolute imports with path aliases once configured
+- Group imports in this order:
+  1. External libraries (e.g., `openai`, `commander`)
+  2. Internal modules (e.g., `./client.ts`)
+  3. Type imports (e.g., `import type { Foo }`)
+- Use `.ts` extension in imports: `import { Foo } from './foo.ts'`
 - Prefer named imports over default imports
+
+**Example:**
+```typescript
+import { Command } from 'commander'
+import { readFile } from 'node:fs/promises'
+
+import { LLMClient } from './client.ts'
+import { executeTool } from '../tools/index.ts'
+
+import type { ChatMessage } from './types.ts'
+```
 
 ### Formatting
 
@@ -83,15 +118,17 @@ jarvis list-models --json
 - No semicolons (ASI-friendly code)
 - 100 character line limit
 - Trailing commas in multi-line objects/arrays
+- Use `const` by default, `let` when reassignment needed
 
 ### Naming Conventions
 
-- **Files**: kebab-case.ts for modules, PascalCase.ts for classes
-- **Variables/functions**: camelCase
-- **Classes/interfaces**: PascalCase
-- **Constants**: UPPER_SNAKE_CASE for true constants
+- **Files**: kebab-case.ts for modules (e.g., `read-file.ts`, `chat-with-tools.ts`)
+- **Variables/functions**: camelCase (e.g., `defaultModel`, `executeTool`)
+- **Classes/interfaces**: PascalCase (e.g., `LLMClient`, `ChatMessage`)
+- **Constants**: UPPER_SNAKE_CASE for true constants (e.g., `BASE_URL`)
 - **Types**: PascalCase with descriptive names (e.g., `UserServiceConfig`)
 - **Private members**: prefixed with underscore `_privateMethod()`
+- **Error classes**: PascalCase with Error suffix (e.g., `LLMRateLimitError`)
 
 ### Error Handling
 
@@ -100,6 +137,22 @@ jarvis list-models --json
 - Use early returns to reduce nesting
 - Handle async errors with try/catch; avoid floating promises
 - Log errors with context before re-throwing
+- Map external errors (e.g., OpenAI SDK) to our error types
+
+**Example:**
+```typescript
+export class LLMError extends Error {
+  readonly code: string
+  readonly statusCode?: number
+
+  constructor(message: string, code: string, statusCode?: number) {
+    super(message)
+    this.name = 'LLMError'
+    this.code = code
+    this.statusCode = statusCode
+  }
+}
+```
 
 ### Architecture
 
@@ -108,6 +161,29 @@ jarvis list-models --json
 - Use dependency injection for testability
 - Separate I/O from business logic
 - Favor immutability (const, readonly, spread operator)
+- Export types and functions from index.ts files
+
+### Testing
+
+- Use Node.js native test runner (`node:test` and `node:assert`)
+- Name test files with `.test.ts` suffix (e.g., `client.test.ts`)
+- Use `describe` for grouping related tests
+- Use `test` for individual test cases
+- Test both success and error paths
+- Mock external dependencies when testing business logic
+
+**Example:**
+```typescript
+import { test, describe } from 'node:test'
+import assert from 'node:assert'
+
+describe('Component', () => {
+  test('does something correctly', () => {
+    const result = doSomething()
+    assert.equal(result, expected)
+  })
+})
+```
 
 ## Development Workflow
 
@@ -115,6 +191,7 @@ jarvis list-models --json
 2. Write code incrementally with fast feedback loops
 3. Add tests for new functionality
 4. Update this file when adding new tooling
+5. Commit with conventional commit messages (e.g., `feat:`, `fix:`, `docs:`)
 
 ## Node.js Native TypeScript
 
@@ -122,3 +199,4 @@ jarvis list-models --json
 - Shebang: `#!/usr/bin/env node --experimental-strip-types`
 - No compilation step needed - types are stripped at runtime
 - Type errors won't prevent execution; use IDE/editor for type checking
+- Parameter properties are NOT supported (don't use `constructor(public readonly foo: string)`)
