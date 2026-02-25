@@ -5,7 +5,7 @@ import { Command } from 'commander'
 
 // Load environment variables from .env file
 config()
-import { LLMClient } from './llm/index.ts'
+import { LLMClient, chatWithTools } from './llm/index.ts'
 import type { ChatMessage } from './llm/index.ts'
 
 const program = new Command()
@@ -101,6 +101,59 @@ program
         }
         console.log(`\nTotal: ${models.length} models`)
       }
+    } catch (error) {
+      if (error instanceof Error) {
+        console.error('Error:', error.message)
+        process.exit(1)
+      }
+      throw error
+    }
+  })
+
+program
+  .command('chat-with-tools')
+  .description('Chat with tool calling enabled (read_file)')
+  .argument('<message>', 'Message to send')
+  .option('-m, --model <model>', 'Model to use (or set DEFAULT_MODEL env var)')
+  .option('-t, --temperature <temp>', 'Temperature (0.0-2.0)', '0.7')
+  .option('--max-tokens <tokens>', 'Maximum tokens to generate')
+  .option('-s, --system <prompt>', 'System prompt')
+  .action(async (message, options) => {
+    try {
+      const model = options.model ?? process.env.DEFAULT_MODEL
+
+      if (!model) {
+        console.error('Error: Model is required. Either use -m/--model flag or set DEFAULT_MODEL environment variable.')
+        console.error('\nRun "jarvis list-models" to see available models.')
+        process.exit(1)
+      }
+
+      const client = new LLMClient({
+        defaultModel: model,
+      })
+
+      const messages: ChatMessage[] = []
+
+      if (options.system) {
+        messages.push({ role: 'system', content: options.system })
+      } else {
+        messages.push({
+          role: 'system',
+          content: 'You are a helpful assistant with access to tools. You can read files using the read_file tool. Use it when the user asks about file contents.',
+        })
+      }
+
+      messages.push({ role: 'user', content: message })
+
+      console.log('Thinking...\n')
+
+      const response = await chatWithTools(client, messages, {
+        model,
+        temperature: parseFloat(options.temperature),
+        max_tokens: options.maxTokens ? parseInt(options.maxTokens) : undefined,
+      })
+
+      console.log(response.choices[0]?.message?.content)
     } catch (error) {
       if (error instanceof Error) {
         console.error('Error:', error.message)
