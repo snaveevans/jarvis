@@ -86,6 +86,19 @@ describe('core tool safeguards', () => {
     assert.equal(valid.error, undefined)
   })
 
+  test('todo_list accepts compatibility shape with title/done/id', async () => {
+    const result = await todoListTool.execute({
+      items: [
+        { id: '1', title: 'first item', done: false },
+        { id: '2', title: 'second item', done: true },
+      ],
+    })
+
+    assert.equal(result.error, undefined)
+    assert.match(result.content, /\[pending\].*1: first item/)
+    assert.match(result.content, /\[completed\].*2: second item/)
+  })
+
   test('shell blocks disallowed command patterns', async () => {
     const blocked = await shellTool.execute({
       command: 'cat package.json',

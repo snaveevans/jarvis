@@ -20,6 +20,25 @@ export interface ChatWithToolsOptions {
   onToolCall?: (observation: ToolCallObservation) => void
 }
 
+function createIterationLimitResponse(model?: string): ChatCompletionResponse {
+  return {
+    id: 'tool_iteration_limit',
+    object: 'chat.completion',
+    created: Math.floor(Date.now() / 1000),
+    model: model ?? 'tool-runner',
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: 'assistant',
+          content: `Reached maximum tool iterations (${MAX_TOOL_ITERATIONS}) without producing a final answer. Please narrow the request or split it into smaller steps.`,
+        },
+        finish_reason: 'stop',
+      },
+    ],
+  }
+}
+
 export async function chatWithTools(
   client: ChatWithToolsClient,
   messages: ChatMessage[],
@@ -28,6 +47,7 @@ export async function chatWithTools(
   const tools = getToolDefinitions()
   let currentMessages = [...messages]
   let iteration = 0
+  let latestModel = options.model
 
   while (iteration < MAX_TOOL_ITERATIONS) {
     iteration++
@@ -39,6 +59,7 @@ export async function chatWithTools(
       tools: tools.length > 0 ? tools : undefined,
       tool_choice: tools.length > 0 ? 'auto' : undefined,
     })
+    latestModel = response.model
 
     const choice = response.choices[0]
     if (!choice) {
@@ -77,10 +98,6 @@ export async function chatWithTools(
     }
   }
 
-  // If we hit max iterations, return last response
-  return await client.chat(currentMessages, {
-    model: options.model,
-    temperature: options.temperature,
-    max_tokens: options.max_tokens,
-  })
+  // If we hit max iterations, return a clean fallback response.
+  return createIterationLimitResponse(latestModel)
 }
