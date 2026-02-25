@@ -6,6 +6,7 @@ import { Command } from 'commander'
 // Load environment variables from .env file
 config()
 import { LLMClient, chatWithTools } from './llm/index.ts'
+import { createLogger } from './logger.ts'
 import type { ChatMessage } from './llm/index.ts'
 
 const program = new Command()
@@ -118,6 +119,8 @@ program
   .option('-t, --temperature <temp>', 'Temperature (0.0-2.0)', '0.7')
   .option('--max-tokens <tokens>', 'Maximum tokens to generate')
   .option('-s, --system <prompt>', 'System prompt')
+  .option('--log-level <level>', 'Log level for tool-call logs', process.env.JARVIS_LOG_LEVEL ?? 'info')
+  .option('--log-file <path>', 'Also write tool-call logs to a file')
   .action(async (message, options) => {
     try {
       const model = options.model ?? process.env.DEFAULT_MODEL
@@ -130,6 +133,10 @@ program
 
       const client = new LLMClient({
         defaultModel: model,
+      })
+      const logger = createLogger({
+        level: options.logLevel,
+        filePath: options.logFile,
       })
 
       const messages: ChatMessage[] = []
@@ -151,6 +158,20 @@ program
         model,
         temperature: parseFloat(options.temperature),
         max_tokens: options.maxTokens ? parseInt(options.maxTokens) : undefined,
+        onToolCall: ({ iteration, toolCall, result }) => {
+          logger.info(
+            {
+              event: 'tool_call',
+              iteration,
+              toolCallId: toolCall.id,
+              toolName: toolCall.function.name,
+              toolArguments: toolCall.function.arguments,
+              success: !result.error,
+              toolError: result.error,
+            },
+            'Tool call executed'
+          )
+        },
       })
 
       console.log(response.choices[0]?.message?.content)
