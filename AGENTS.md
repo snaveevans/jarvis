@@ -81,10 +81,12 @@ jarvis chat "What is the capital of France?"
 jarvis chat "Explain quantum computing" --stream
 jarvis chat "Write a poem" -m "hf:model-name" -t 0.9
 jarvis chat "Hello" --max-tokens 50
+jarvis chat --file ./prompt.txt
 
 # Chat with tool calling (read_file)
 jarvis chat-with-tools "Read README.md and summarize it"
 jarvis chat-with-tools "What does package.json contain?"
+jarvis chat-with-tools --file ./prompt.txt
 
 # List available models
 jarvis list-models

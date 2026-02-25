@@ -7,6 +7,7 @@ import { Command } from 'commander'
 config()
 import { LLMClient, chatWithTools } from './llm/index.ts'
 import { createLogger } from './logger.ts'
+import { buildPromptInput } from './prompt-input.ts'
 import type { ChatMessage } from './llm/index.ts'
 
 const program = new Command()
@@ -19,11 +20,12 @@ program
 program
   .command('chat')
   .description('Send a message to the LLM')
-  .argument('<message>', 'Message to send')
+  .argument('[message]', 'Message to send')
   .option('-m, --model <model>', 'Model to use (or set DEFAULT_MODEL env var)')
   .option('-t, --temperature <temp>', 'Temperature (0.0-2.0)', '0.7')
   .option('--max-tokens <tokens>', 'Maximum tokens to generate')
   .option('-s, --system <prompt>', 'System prompt')
+  .option('-f, --file <path>', 'Read prompt content from a file')
   .option('--stream', 'Stream the response', false)
   .action(async (message, options) => {
     try {
@@ -44,8 +46,13 @@ program
       if (options.system) {
         messages.push({ role: 'system', content: options.system })
       }
-      
-      messages.push({ role: 'user', content: message })
+
+      const prompt = await buildPromptInput({
+        message,
+        filePath: options.file,
+      })
+
+      messages.push({ role: 'user', content: prompt })
 
       if (options.stream) {
         process.stdout.write('Thinking...\n\n')
@@ -114,11 +121,12 @@ program
 program
   .command('chat-with-tools')
   .description('Chat with tool calling enabled (read_file)')
-  .argument('<message>', 'Message to send')
+  .argument('[message]', 'Message to send')
   .option('-m, --model <model>', 'Model to use (or set DEFAULT_MODEL env var)')
   .option('-t, --temperature <temp>', 'Temperature (0.0-2.0)', '0.7')
   .option('--max-tokens <tokens>', 'Maximum tokens to generate')
   .option('-s, --system <prompt>', 'System prompt')
+  .option('-f, --file <path>', 'Read prompt content from a file')
   .option('--log-level <level>', 'Log level for tool-call logs', process.env.JARVIS_LOG_LEVEL ?? 'info')
   .option('--log-file <path>', 'Also write tool-call logs to a file')
   .action(async (message, options) => {
@@ -150,7 +158,12 @@ program
         })
       }
 
-      messages.push({ role: 'user', content: message })
+      const prompt = await buildPromptInput({
+        message,
+        filePath: options.file,
+      })
+
+      messages.push({ role: 'user', content: prompt })
 
       console.log('Thinking...\n')
 
