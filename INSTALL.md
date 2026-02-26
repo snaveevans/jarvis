@@ -187,6 +187,21 @@ Or with tool calling enabled (Jarvis can read files, search code, run commands):
 jarvis chat-with-tools "What files are in the current directory?"
 ```
 
+### Step 6 — Use custom skills (optional)
+
+Jarvis can now create and manage custom skills at runtime using tools:
+- `create_skill`
+- `list_skills`
+- `remove_skill`
+
+Custom skills are stored in `data/skills/*.md`, loaded lazily like built-in skills, and activated without restart.
+
+Example prompt:
+
+```bash
+jarvis chat-with-tools "Create a skill named release-checklist that uses read, glob, and web_search to prepare release notes."
+```
+
 ---
 
 ## Telegram Bot Setup (optional)

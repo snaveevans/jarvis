@@ -1,6 +1,7 @@
 #!/usr/bin/env node --experimental-strip-types
 
 import { createInterface } from 'node:readline/promises'
+import path from 'node:path'
 import { stdin as input, stdout as output } from 'node:process'
 
 import { Command } from 'commander'
@@ -23,10 +24,14 @@ import { createIntrospectTool } from './tools/introspect.ts'
 import { createReadLogsTool } from './tools/read-logs.ts'
 import { createHealthCheckTool } from './tools/health-check.ts'
 import { createWebSearchTool } from './tools/web-search.ts'
+import { createSkillManagerTools } from './tools/skill-manager.ts'
 import { createEventStore } from './telemetry/event-store.ts'
 import { getConfig, logConfig } from './config.ts'
+import { getToolDefinitions } from './tools/index.ts'
 import type { ChatMessage } from './llm/index.ts'
 import type { MemoryService, MemoryType } from './memory/index.ts'
+import type { Tool } from './tools/types.ts'
+import type { SkillRegistry } from './skills/index.ts'
 
 function parseTelegramAllowedUserIds(configValue: number[] | string | undefined): number[] | undefined {
   if (!configValue) return undefined
@@ -65,6 +70,45 @@ function formatMemoryRows(rows: Array<{
     const date = row.createdAt.slice(0, 19).replace('T', ' ')
     return `#${row.id} [${row.type}] (${date}, ${row.tokenCount} tokens)\n${row.content}`
   }).join('\n\n')
+}
+
+const CUSTOM_SKILLS_DIR = path.join(process.cwd(), 'data/skills')
+
+function registerBuiltInSkills(skillRegistry: SkillRegistry, includeReminder: boolean): void {
+  if (includeReminder) {
+    skillRegistry.register({
+      name: 'reminder',
+      description: 'Set, list, and cancel time-based reminders',
+      tools: ['schedule_message', 'list_scheduled_messages', 'cancel_scheduled_message'],
+      filePath: 'src/skills/reminder.md',
+    })
+  }
+
+  skillRegistry.register({
+    name: 'introspection',
+    description: 'Self-diagnosis using introspect, read_logs, and health_check tools',
+    tools: ['introspect', 'read_logs', 'health_check'],
+    filePath: 'src/skills/introspection.md',
+  })
+}
+
+function createSkillTools(
+  skillRegistry: SkillRegistry,
+  enabledTools: Tool[]
+): Tool[] {
+  const allowedToolNames = new Set<string>([
+    ...getToolDefinitions().map((def) => def.function.name),
+    ...enabledTools.map((tool) => tool.name),
+    'create_skill',
+    'list_skills',
+    'remove_skill',
+  ])
+
+  return createSkillManagerTools({
+    skillRegistry,
+    skillsDir: CUSTOM_SKILLS_DIR,
+    allowedToolNames: Array.from(allowedToolNames),
+  })
 }
 
 
@@ -438,6 +482,8 @@ program
       const sessionStore = createInMemorySessionStore({ onEvict })
       const cliEndpoint = createCliEndpoint()
       const memoryTools = memoryService ? createMemoryTools(memoryService) : []
+      const skillRegistry = createSkillRegistry()
+      registerBuiltInSkills(skillRegistry, false)
 
       const processStartMs = Date.now()
       const eventStore = createEventStore(config.tools.eventStoreSize)
@@ -453,6 +499,12 @@ program
         ...(logFilePath ? [createReadLogsTool({ logFilePath })] : []),
         createHealthCheckTool({ client, memoryService, sessionStore, processStartMs }),
       ]
+      const enabledTools = [...memoryTools, ...webSearchTools, ...introspectionTools]
+      const skillTools = createSkillTools(skillRegistry, enabledTools)
+      const reloadResult = await skillRegistry.reloadCustomFromDir(CUSTOM_SKILLS_DIR)
+      if (reloadResult.errors.length > 0) {
+        logger.warn({ errors: reloadResult.errors }, 'Failed to load one or more custom skills')
+      }
 
       dispatcher = createDispatcher({
         client,
@@ -461,7 +513,8 @@ program
         providerName: config.llm.provider,
         baseSystemPrompt: options.system ?? (config.llm.defaultPrompt || undefined),
         logger: loggerConfig,
-        extraTools: [...memoryTools, ...webSearchTools, ...introspectionTools],
+        extraTools: [...enabledTools, ...skillTools],
+        skillRegistry,
         memoryService,
         eventStore,
         maxToolIterations: config.tools.maxIterations,
@@ -568,18 +621,7 @@ program
       ]
 
       const skillRegistry = createSkillRegistry()
-      skillRegistry.register({
-        name: 'reminder',
-        description: 'Set, list, and cancel time-based reminders',
-        tools: ['schedule_message', 'list_scheduled_messages', 'cancel_scheduled_message'],
-        filePath: 'src/skills/reminder.md',
-      })
-      skillRegistry.register({
-        name: 'introspection',
-        description: 'Self-diagnosis using introspect, read_logs, and health_check tools',
-        tools: ['introspect', 'read_logs', 'health_check'],
-        filePath: 'src/skills/introspection.md',
-      })
+      registerBuiltInSkills(skillRegistry, true)
 
       // Create schedule-message tools — dispatcher ref captured after creation
       let dispatcherRef: { sendProactive: (p: { sessionId: string, endpointKind: string, text: string }) => Promise<void> }
@@ -588,6 +630,12 @@ program
         dataDir: 'data',
         logger: telegramLogger,
       })
+      const enabledTools = [...scheduleHandle.tools, ...memoryTools, ...webSearchTools, ...introspectionTools]
+      const skillTools = createSkillTools(skillRegistry, enabledTools)
+      const reloadResult = await skillRegistry.reloadCustomFromDir(CUSTOM_SKILLS_DIR)
+      if (reloadResult.errors.length > 0) {
+        telegramLogger.warn({ errors: reloadResult.errors }, 'Failed to load one or more custom skills')
+      }
 
       const searchPool = createSearchWorkerPool({ logger: telegramLogger })
       const shellPool = createShellPool()
@@ -599,7 +647,7 @@ program
         providerName: config.llm.provider,
         baseSystemPrompt: options.systemPrompt ?? (config.llm.defaultPrompt || undefined),
         logger: loggerConfig,
-        extraTools: [...scheduleHandle.tools, ...memoryTools, ...webSearchTools, ...introspectionTools],
+        extraTools: [...enabledTools, ...skillTools],
         skillRegistry,
         memoryService,
         eventStore,
@@ -698,18 +746,7 @@ program
       ]
 
       const skillRegistry = createSkillRegistry()
-      skillRegistry.register({
-        name: 'reminder',
-        description: 'Set, list, and cancel time-based reminders',
-        tools: ['schedule_message', 'list_scheduled_messages', 'cancel_scheduled_message'],
-        filePath: 'src/skills/reminder.md',
-      })
-      skillRegistry.register({
-        name: 'introspection',
-        description: 'Self-diagnosis using introspect, read_logs, and health_check tools',
-        tools: ['introspect', 'read_logs', 'health_check'],
-        filePath: 'src/skills/introspection.md',
-      })
+      registerBuiltInSkills(skillRegistry, true)
 
       // Create schedule-message tools — dispatcher ref captured after creation
       let dispatcherRef: { sendProactive: (p: { sessionId: string, endpointKind: string, text: string }) => Promise<void> }
@@ -718,6 +755,12 @@ program
         dataDir: 'data',
         logger,
       })
+      const enabledTools = [...scheduleHandle.tools, ...memoryTools, ...webSearchTools, ...introspectionTools]
+      const skillTools = createSkillTools(skillRegistry, enabledTools)
+      const reloadResult = await skillRegistry.reloadCustomFromDir(CUSTOM_SKILLS_DIR)
+      if (reloadResult.errors.length > 0) {
+        logger.warn({ errors: reloadResult.errors }, 'Failed to load one or more custom skills')
+      }
 
       const searchPool = createSearchWorkerPool({ logger })
       const shellPool = createShellPool()
@@ -729,7 +772,7 @@ program
         providerName: config.llm.provider,
         baseSystemPrompt: options.systemPrompt ?? (config.llm.defaultPrompt || undefined),
         logger: loggerConfig,
-        extraTools: [...scheduleHandle.tools, ...memoryTools, ...webSearchTools, ...introspectionTools],
+        extraTools: [...enabledTools, ...skillTools],
         skillRegistry,
         memoryService,
         eventStore,

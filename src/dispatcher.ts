@@ -204,10 +204,12 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
 
         const session = config.sessionStore.getOrCreate(message.sessionId, message.endpointKind)
 
-        // Inject system prompt if this is a fresh session
+        // Keep system prompt in sync so newly added skills become available without restart.
+        const systemPrompt = buildFullSystemPrompt(endpoint.profile)
         if (session.messages.length === 0) {
-          const systemPrompt = buildFullSystemPrompt(endpoint.profile)
           config.sessionStore.addMessage(session.id, { role: 'system', content: systemPrompt })
+        } else if (session.messages[0]?.role === 'system' && session.messages[0].content !== systemPrompt) {
+          session.messages[0] = { role: 'system', content: systemPrompt }
         }
 
         // Add user message
@@ -340,10 +342,12 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
 
         const session = config.sessionStore.getOrCreate(params.sessionId, params.endpointKind)
 
-        // Inject system prompt if fresh session
+        // Keep system prompt in sync so newly added skills become available without restart.
+        const systemPrompt = buildFullSystemPrompt(endpoint.profile)
         if (session.messages.length === 0) {
-          const systemPrompt = buildFullSystemPrompt(endpoint.profile)
           config.sessionStore.addMessage(session.id, { role: 'system', content: systemPrompt })
+        } else if (session.messages[0]?.role === 'system' && session.messages[0].content !== systemPrompt) {
+          session.messages[0] = { role: 'system', content: systemPrompt }
         }
 
         // Add the proactive message as a user message
