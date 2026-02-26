@@ -88,6 +88,20 @@ const configSchema = z.object({
     searchPoolSize: z.number().default(2),
     shellPoolSize: z.number().default(3),
   }),
+  search: z.object({
+    provider: z.enum(['brave', 'synthetic']).default('brave'),
+    defaultLimit: numStr(5),
+    maxLimit: numStr(10),
+    timeoutMs: numStr(15_000),
+    brave: z.object({
+      apiKey: z.string().default(''),
+      baseUrl: z.string().default('https://api.search.brave.com/res/v1/web/search'),
+    }),
+    synthetic: z.object({
+      apiKey: z.string().default(''),
+      baseUrl: z.string().default('https://api.synthetic.new/v2/search'),
+    }),
+  }),
   tools: z.object({
     maxParallel: numStr(5),
     maxIterations: numStr(5),
@@ -137,6 +151,14 @@ const envMapping: Record<string, string[]> = {
   JARVIS_TOKEN_ESTIMATION_CHARS_PER_TOKEN: ['memory', 'tokenEstimationCharsPerToken'],
   JARVIS_LOG_LEVEL: ['logging', 'level'],
   JARVIS_LOG_FILE: ['logging', 'file'],
+  JARVIS_SEARCH_PROVIDER: ['search', 'provider'],
+  JARVIS_SEARCH_DEFAULT_LIMIT: ['search', 'defaultLimit'],
+  JARVIS_SEARCH_MAX_LIMIT: ['search', 'maxLimit'],
+  JARVIS_SEARCH_TIMEOUT_MS: ['search', 'timeoutMs'],
+  BRAVE_API_KEY: ['search', 'brave', 'apiKey'],
+  BRAVE_SEARCH_BASE_URL: ['search', 'brave', 'baseUrl'],
+  SYNTHETIC_SEARCH_API_KEY: ['search', 'synthetic', 'apiKey'],
+  SYNTHETIC_SEARCH_BASE_URL: ['search', 'synthetic', 'baseUrl'],
   JARVIS_TOOLS_MAX_PARALLEL: ['tools', 'maxParallel'],
   JARVIS_TOOLS_MAX_ITERATIONS: ['tools', 'maxIterations'],
   JARVIS_TOOLS_MAX_OUTPUT_CHARACTERS: ['tools', 'maxOutputCharacters'],
@@ -301,6 +323,20 @@ export function logConfig(logger: { info: (obj: Record<string, unknown>, msg: st
     workers: {
       searchPoolSize: config.workers.searchPoolSize,
       shellPoolSize: config.workers.shellPoolSize,
+    },
+    search: {
+      provider: config.search.provider,
+      defaultLimit: config.search.defaultLimit,
+      maxLimit: config.search.maxLimit,
+      timeoutMs: config.search.timeoutMs,
+      brave: {
+        baseUrl: config.search.brave.baseUrl,
+        apiKey: config.search.brave.apiKey ? '***set***' : '***NOT SET***',
+      },
+      synthetic: {
+        baseUrl: config.search.synthetic.baseUrl,
+        apiKey: config.search.synthetic.apiKey ? '***set***' : '***NOT SET***',
+      },
     },
     tools: {
       maxParallel: config.tools.maxParallel,

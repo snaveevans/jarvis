@@ -22,6 +22,7 @@ import { createMemoryTools } from './tools/memory-tools.ts'
 import { createIntrospectTool } from './tools/introspect.ts'
 import { createReadLogsTool } from './tools/read-logs.ts'
 import { createHealthCheckTool } from './tools/health-check.ts'
+import { createWebSearchTool } from './tools/web-search.ts'
 import { createEventStore } from './telemetry/event-store.ts'
 import { getConfig, logConfig } from './config.ts'
 import type { ChatMessage } from './llm/index.ts'
@@ -441,6 +442,12 @@ program
       const processStartMs = Date.now()
       const eventStore = createEventStore(config.tools.eventStoreSize)
       const logFilePath = options.logFile ?? config.logging.file ?? ''
+      const webSearchTools = [
+        createWebSearchTool({
+          search: config.search,
+          syntheticApiKeyFallback: config.llm.providers.synthetic.apiKey,
+        }),
+      ]
       const introspectionTools = [
         createIntrospectTool({ eventStore, sessionStore, memoryService, config, processStartMs }),
         ...(logFilePath ? [createReadLogsTool({ logFilePath })] : []),
@@ -454,7 +461,7 @@ program
         providerName: config.llm.provider,
         baseSystemPrompt: options.system ?? (config.llm.defaultPrompt || undefined),
         logger: loggerConfig,
-        extraTools: [...memoryTools, ...introspectionTools],
+        extraTools: [...memoryTools, ...webSearchTools, ...introspectionTools],
         memoryService,
         eventStore,
         maxToolIterations: config.tools.maxIterations,
@@ -548,6 +555,12 @@ program
       const processStartMs = Date.now()
       const eventStore = createEventStore(config.tools.eventStoreSize)
       const logFilePath = options.logFile ?? config.logging.file ?? ''
+      const webSearchTools = [
+        createWebSearchTool({
+          search: config.search,
+          syntheticApiKeyFallback: config.llm.providers.synthetic.apiKey,
+        }),
+      ]
       const introspectionTools = [
         createIntrospectTool({ eventStore, sessionStore, memoryService, config, processStartMs }),
         ...(logFilePath ? [createReadLogsTool({ logFilePath })] : []),
@@ -586,7 +599,7 @@ program
         providerName: config.llm.provider,
         baseSystemPrompt: options.systemPrompt ?? (config.llm.defaultPrompt || undefined),
         logger: loggerConfig,
-        extraTools: [...scheduleHandle.tools, ...memoryTools, ...introspectionTools],
+        extraTools: [...scheduleHandle.tools, ...memoryTools, ...webSearchTools, ...introspectionTools],
         skillRegistry,
         memoryService,
         eventStore,
@@ -672,6 +685,12 @@ program
       const processStartMs = Date.now()
       const eventStore = createEventStore(config.tools.eventStoreSize)
       const logFilePath = options.logFile ?? config.logging.file ?? ''
+      const webSearchTools = [
+        createWebSearchTool({
+          search: config.search,
+          syntheticApiKeyFallback: config.llm.providers.synthetic.apiKey,
+        }),
+      ]
       const introspectionTools = [
         createIntrospectTool({ eventStore, sessionStore, memoryService, config, processStartMs }),
         ...(logFilePath ? [createReadLogsTool({ logFilePath })] : []),
@@ -710,7 +729,7 @@ program
         providerName: config.llm.provider,
         baseSystemPrompt: options.systemPrompt ?? (config.llm.defaultPrompt || undefined),
         logger: loggerConfig,
-        extraTools: [...scheduleHandle.tools, ...memoryTools, ...introspectionTools],
+        extraTools: [...scheduleHandle.tools, ...memoryTools, ...webSearchTools, ...introspectionTools],
         skillRegistry,
         memoryService,
         eventStore,

@@ -11,7 +11,7 @@ A step-by-step guide to getting Jarvis running on your machine.
 | **Node.js** | **v22 or later** | Uses native TypeScript execution (`--experimental-strip-types`) |
 | **npm** | v10+ | Bundled with Node.js v22 |
 | **Git** | Any | To clone the repository |
-| **API key** | — | See [Getting an API Key](#getting-an-api-key) |
+| **API key** | — | Configure in [Step 2](#step-2--configure-your-api-key) |
 
 ### Check your Node.js version
 
@@ -39,9 +39,9 @@ cd jarvis
 # 2. Install dependencies (also auto-creates .env from .env.example)
 npm install
 
-# 3. Add your API key to .env
-#    Open .env and set SYNTHETIC_API_KEY=your-key-here
-#    (or follow the provider-specific setup below)
+# 3. Add your API key(s) to .env
+#    Required: LLM provider key (for chat)
+#    Optional but recommended: BRAVE_API_KEY (for web_search)
 
 # 4. Link the CLI globally
 npm link
@@ -110,6 +110,33 @@ LLM_BASE_URL=https://your-provider.com/v1
 LLM_API_KEY=your-api-key-here
 OPENAI_COMPATIBLE_DEFAULT_MODEL=your-model-name
 ```
+
+### Step 2b — Configure `web_search` backend (optional but recommended)
+
+Jarvis now includes a `web_search` tool. You can choose the backend with:
+
+```env
+JARVIS_SEARCH_PROVIDER=brave
+```
+
+#### Option 1: Brave Search (recommended)
+
+```env
+BRAVE_API_KEY=your-brave-api-key-here
+# Optional:
+# BRAVE_SEARCH_BASE_URL=https://api.search.brave.com/res/v1/web/search
+```
+
+#### Option 2: Synthetic Search
+
+```env
+JARVIS_SEARCH_PROVIDER=synthetic
+# Either dedicated search key:
+SYNTHETIC_SEARCH_API_KEY=your-synthetic-search-key-here
+# Or fallback to your existing SYNTHETIC_API_KEY
+```
+
+If `web_search` is used without a configured provider key, Jarvis returns a clear tool error.
 
 ---
 
@@ -267,6 +294,12 @@ Key settings:
 | `JARVIS_MEMORY_DIR` | `~/.jarvis` | Where memory database is stored |
 | `JARVIS_LOG_LEVEL` | `info` | Log verbosity (`debug`/`info`/`warn`/`error`/`silent`) |
 | `JARVIS_LOG_FILE` | _(none)_ | Log file path (enables `read_logs` tool) |
+| `JARVIS_SEARCH_PROVIDER` | `brave` | `web_search` backend (`brave` or `synthetic`) |
+| `BRAVE_API_KEY` | _(none)_ | Brave Search API key for `web_search` |
+| `SYNTHETIC_SEARCH_API_KEY` | _(none)_ | Synthetic `/search` API key for `web_search` |
+| `JARVIS_SEARCH_DEFAULT_LIMIT` | `5` | Default number of web search results |
+| `JARVIS_SEARCH_MAX_LIMIT` | `10` | Hard cap for requested web search results |
+| `JARVIS_SEARCH_TIMEOUT_MS` | `15000` | Timeout for web search provider calls |
 | `JARVIS_TOOLS_MAX_ITERATIONS` | `5` | Max tool calls per LLM turn |
 | `JARVIS_TOOLS_MAX_PARALLEL` | `5` | Max parallel tool executions |
 | `JARVIS_TOOLS_TIMEOUT_MS` | `120000` | Tool timeout (milliseconds) |
@@ -293,10 +326,13 @@ jarvis chat "Say hello"
 # 4. Tool calling works
 jarvis chat-with-tools "List files in the current directory"
 
-# 5. Memory works
+# 5. Web search works (if configured)
+jarvis chat-with-tools "Use web_search to find the latest Node.js 22 release notes"
+
+# 6. Memory works
 jarvis memory stats
 
-# 6. Tests pass (development only)
+# 7. Tests pass (development only)
 npm test
 ```
 
@@ -321,6 +357,23 @@ Run `jarvis list-models` to see available models.
 ### `Error: API key not configured`
 
 Your `SYNTHETIC_API_KEY` (or provider-specific key) is missing or empty in `.env`.
+
+### `web_search` says Brave is not configured
+
+Set:
+
+```env
+BRAVE_API_KEY=your-brave-api-key-here
+```
+
+Or switch provider:
+
+```env
+JARVIS_SEARCH_PROVIDER=synthetic
+SYNTHETIC_SEARCH_API_KEY=your-synthetic-search-key-here
+```
+
+(`SYNTHETIC_API_KEY` can also be used as fallback for synthetic search.)
 
 ### Node.js version errors
 

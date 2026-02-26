@@ -44,6 +44,20 @@
     "level": "JARVIS_LOG_LEVEL",
     "file": "JARVIS_LOG_FILE"
   },
+  "search": {
+    "provider": "JARVIS_SEARCH_PROVIDER",
+    "defaultLimit": "JARVIS_SEARCH_DEFAULT_LIMIT",
+    "maxLimit": "JARVIS_SEARCH_MAX_LIMIT",
+    "timeoutMs": "JARVIS_SEARCH_TIMEOUT_MS",
+    "brave": {
+      "apiKey": "BRAVE_API_KEY",
+      "baseUrl": "BRAVE_SEARCH_BASE_URL"
+    },
+    "synthetic": {
+      "apiKey": "SYNTHETIC_SEARCH_API_KEY",
+      "baseUrl": "SYNTHETIC_SEARCH_BASE_URL"
+    }
+  },
   "tools": {
     "maxParallel": "JARVIS_TOOLS_MAX_PARALLEL",
     "maxIterations": "JARVIS_TOOLS_MAX_ITERATIONS",

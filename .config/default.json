@@ -47,6 +47,20 @@
     "searchPoolSize": 2,
     "shellPoolSize": 3
   },
+  "search": {
+    "provider": "brave",
+    "defaultLimit": 5,
+    "maxLimit": 10,
+    "timeoutMs": 15000,
+    "brave": {
+      "apiKey": "",
+      "baseUrl": "https://api.search.brave.com/res/v1/web/search"
+    },
+    "synthetic": {
+      "apiKey": "",
+      "baseUrl": "https://api.synthetic.new/v2/search"
+    }
+  },
   "tools": {
     "maxParallel": 5,
     "maxIterations": 5,

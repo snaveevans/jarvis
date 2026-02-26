@@ -13,7 +13,7 @@ import type { SkillRegistry } from './skills/index.ts'
 import type { EventStore } from './telemetry/event-store.ts'
 
 const DEFAULT_BASE_PROMPT =
-  'You are a helpful assistant with access to tools: read, glob, grep, edit, write, shell, ask_user, todo_list, web_fetch, sub_agent, and read_file. Prefer specialized tools over shell for file operations.'
+  'You are a helpful assistant with access to tools: read, glob, grep, edit, write, shell, ask_user, todo_list, web_fetch, web_search, sub_agent, and read_file. Prefer specialized tools over shell for file operations.'
 
 export interface DispatcherConfig {
   client: ChatWithToolsClient
