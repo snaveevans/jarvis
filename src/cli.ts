@@ -8,6 +8,7 @@ config()
 import { LLMClient, chatWithTools } from './llm/index.ts'
 import { createLogger } from './logger.ts'
 import { buildPromptInput } from './prompt-input.ts'
+import { startTelegramBot } from './telegram/bot.ts'
 import type { ChatMessage } from './llm/index.ts'
 
 const program = new Command()
@@ -188,6 +189,45 @@ program
       })
 
       console.log(response.choices[0]?.message?.content)
+    } catch (error) {
+      if (error instanceof Error) {
+        console.error('Error:', error.message)
+        process.exit(1)
+      }
+      throw error
+    }
+  })
+
+program
+  .command('telegram')
+  .description('Start Telegram bot (long-polling mode)')
+  .option('-m, --model <model>', 'Model to use (or set DEFAULT_MODEL env var)')
+  .option('-s, --system-prompt <prompt>', 'System prompt for the bot')
+  .option('--log-level <level>', 'Log level', process.env.JARVIS_LOG_LEVEL ?? 'info')
+  .option('--log-file <path>', 'Also write logs to a file')
+  .action(async (options) => {
+    try {
+      const model = options.model ?? process.env.DEFAULT_MODEL
+
+      if (!model) {
+        console.error('Error: Model is required. Either use -m/--model flag or set DEFAULT_MODEL environment variable.')
+        process.exit(1)
+      }
+
+      const token = process.env.TELEGRAM_BOT_TOKEN
+      if (!token) {
+        console.error('Error: TELEGRAM_BOT_TOKEN environment variable is required.')
+        console.error('\nGet a bot token from @BotFather on Telegram and add it to your .env file.')
+        process.exit(1)
+      }
+
+      await startTelegramBot({
+        token,
+        model,
+        systemPrompt: options.systemPrompt,
+        logLevel: options.logLevel,
+        logFile: options.logFile,
+      })
     } catch (error) {
       if (error instanceof Error) {
         console.error('Error:', error.message)
