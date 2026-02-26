@@ -1,2 +1,10 @@
 #!/bin/sh
-exec node --experimental-strip-types "$(dirname "$0")/../src/cli.ts" "$@"
+# Resolve the actual script location (follows symlinks)
+SCRIPT="$0"
+while [ -L "$SCRIPT" ]; do
+  DIR="$(cd -P "$(dirname "$SCRIPT")" && pwd)"
+  SCRIPT="$(readlink "$SCRIPT")"
+  [[ $SCRIPT != /* ]] && SCRIPT="$DIR/$SCRIPT"
+done
+DIR="$(cd -P "$(dirname "$SCRIPT")" && pwd)"
+exec node --experimental-strip-types "$DIR/../src/cli.ts" "$@"
