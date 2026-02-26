@@ -2,8 +2,9 @@ import { chatWithTools } from './llm/index.ts'
 import { createLogger } from './logger.ts'
 import { getToolDefinitions, executeTool as baseExecuteTool } from './tools/index.ts'
 
-import type { ChatWithToolsClient } from './llm/index.ts'
+import type { ChatWithToolsClient, ChatMessage } from './llm/index.ts'
 import type { Endpoint, EndpointProfile, InboundMessage } from './endpoints/types.ts'
+import type { MemoryService } from './memory/index.ts'
 import type { SessionStore } from './sessions/store.ts'
 import type { LoggerConfig } from './logger.ts'
 import type { Tool, ToolCall, ToolResult, ToolExecutionContext } from './tools/types.ts'
@@ -21,12 +22,15 @@ export interface DispatcherConfig {
   logger?: LoggerConfig
   extraTools?: Tool[]
   skillRegistry?: SkillRegistry
+  memoryService?: MemoryService
 }
 
 export interface Dispatcher {
   registerEndpoint(endpoint: Endpoint): void
   handleInbound(message: InboundMessage): Promise<void>
   sendProactive(params: { sessionId: string, endpointKind: string, text: string }): Promise<void>
+  waitForIdle(timeoutMs?: number): Promise<void>
+  flushMemoryWrites(timeoutMs?: number): Promise<void>
   start(): Promise<() => void>
 }
 
@@ -53,6 +57,10 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
   const basePrompt = config.baseSystemPrompt ?? DEFAULT_BASE_PROMPT
   const { skillRegistry } = config
   const extraTools = config.extraTools ?? []
+  const memoryService = config.memoryService
+  const pendingMemoryWrites = new Set<Promise<void>>()
+  let activeOperations = 0
+  const idleResolvers = new Set<() => void>()
 
   // Build merged tool definitions and executor if we have extra tools
   let mergedToolOptions: { tools?: ToolDefinition[], executeTool?: (call: ToolCall, ctx?: ToolExecutionContext) => Promise<ToolResult> } = {}
@@ -103,135 +111,286 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
     return prompt
   }
 
+  function getMemoryContext(query: string): string | undefined {
+    if (!memoryService) {
+      return undefined
+    }
+
+    try {
+      return memoryService.getAutoContext(query)
+    } catch (error) {
+      logger.warn(
+        { error: error instanceof Error ? error.message : String(error) },
+        'Memory auto-retrieval failed'
+      )
+      return undefined
+    }
+  }
+
+  function summarizeSession(
+    messages: ChatMessage[],
+    hadToolCalls: boolean,
+    source: string
+  ): void {
+    if (!memoryService) {
+      return
+    }
+
+    const write = memoryService.summarizeAndStore({
+      client: config.client,
+      model: config.model,
+      messages,
+      hadToolCalls,
+      source,
+    })
+    pendingMemoryWrites.add(write)
+    void write.finally(() => {
+      pendingMemoryWrites.delete(write)
+    })
+  }
+
+  function beginOperation(): void {
+    activeOperations++
+  }
+
+  function endOperation(): void {
+    activeOperations = Math.max(0, activeOperations - 1)
+    if (activeOperations === 0) {
+      for (const resolve of idleResolvers) {
+        resolve()
+      }
+      idleResolvers.clear()
+    }
+  }
+
   const dispatcher: Dispatcher = {
     registerEndpoint(endpoint: Endpoint): void {
       endpoints.set(endpoint.profile.kind, endpoint)
     },
 
     async handleInbound(message: InboundMessage): Promise<void> {
-      const endpoint = endpoints.get(message.endpointKind)
-      if (!endpoint) {
-        logger.error({ endpointKind: message.endpointKind }, 'No endpoint registered for kind')
-        return
-      }
-
-      // Handle /clear command
-      if (message.text === '/clear') {
-        config.sessionStore.clear(message.sessionId)
-        await endpoint.send({
-          text: 'Conversation cleared.',
-          sessionId: message.sessionId,
-          endpointKind: message.endpointKind,
-        })
-        return
-      }
-
-      const session = config.sessionStore.getOrCreate(message.sessionId, message.endpointKind)
-
-      // Inject system prompt if this is a fresh session
-      if (session.messages.length === 0) {
-        const systemPrompt = buildFullSystemPrompt(endpoint.profile)
-        config.sessionStore.addMessage(session.id, { role: 'system', content: systemPrompt })
-      }
-
-      // Add user message
-      config.sessionStore.addMessage(session.id, { role: 'user', content: message.text })
-
-      const toolContext = { sessionId: message.sessionId, endpointKind: message.endpointKind }
-
+      beginOperation()
       try {
-        const response = await chatWithTools(config.client, session.messages, {
-          model: config.model,
-          ...mergedToolOptions,
-          toolContext,
-          onToolCall: (observation) => {
-            logger.info(
-              {
-                sessionId: message.sessionId,
-                event: 'tool_call',
-                iteration: observation.iteration,
-                toolName: observation.toolCall.function.name,
-                success: !observation.result.error,
-              },
-              'Tool call executed'
-            )
-          },
-        })
+        const endpoint = endpoints.get(message.endpointKind)
+        if (!endpoint) {
+          logger.error({ endpointKind: message.endpointKind }, 'No endpoint registered for kind')
+          return
+        }
 
-        const content = response.choices[0]?.message?.content
-        if (!content) {
+        // Handle /clear command
+        if (message.text === '/clear') {
+          config.sessionStore.clear(message.sessionId)
           await endpoint.send({
-            text: '(No response from LLM)',
+            text: 'Conversation cleared.',
             sessionId: message.sessionId,
             endpointKind: message.endpointKind,
           })
           return
         }
 
-        // Store assistant response
-        config.sessionStore.addMessage(session.id, { role: 'assistant', content })
+        const session = config.sessionStore.getOrCreate(message.sessionId, message.endpointKind)
 
-        await endpoint.send({
-          text: content,
-          sessionId: message.sessionId,
-          endpointKind: message.endpointKind,
-        })
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        logger.error({ sessionId: message.sessionId, error: errorMessage }, 'Error processing message')
+        // Inject system prompt if this is a fresh session
+        if (session.messages.length === 0) {
+          const systemPrompt = buildFullSystemPrompt(endpoint.profile)
+          config.sessionStore.addMessage(session.id, { role: 'system', content: systemPrompt })
+        }
 
-        // Remove failed user message to keep history clean
-        session.messages.pop()
+        // Add user message
+        config.sessionStore.addMessage(session.id, { role: 'user', content: message.text })
 
-        await endpoint.send({
-          text: `Sorry, something went wrong: ${errorMessage}`,
-          sessionId: message.sessionId,
-          endpointKind: message.endpointKind,
-        })
+        const toolContext = { sessionId: message.sessionId, endpointKind: message.endpointKind }
+        const memoryContext = getMemoryContext(message.text)
+        const llmMessages = memoryContext
+          ? [{ role: 'system', content: memoryContext } as ChatMessage, ...session.messages]
+          : session.messages
+        let hadToolCalls = false
+
+        try {
+          const response = await chatWithTools(config.client, llmMessages, {
+            model: config.model,
+            ...mergedToolOptions,
+            toolContext,
+            onToolCall: (observation) => {
+              hadToolCalls = true
+              logger.info(
+                {
+                  sessionId: message.sessionId,
+                  event: 'tool_call',
+                  iteration: observation.iteration,
+                  toolName: observation.toolCall.function.name,
+                  success: !observation.result.error,
+                },
+                'Tool call executed'
+              )
+            },
+          })
+
+          const content = response.choices[0]?.message?.content
+          if (!content) {
+            await endpoint.send({
+              text: '(No response from LLM)',
+              sessionId: message.sessionId,
+              endpointKind: message.endpointKind,
+            })
+            return
+          }
+
+          // Store assistant response
+          config.sessionStore.addMessage(session.id, { role: 'assistant', content })
+
+          await endpoint.send({
+            text: content,
+            sessionId: message.sessionId,
+            endpointKind: message.endpointKind,
+          })
+
+          summarizeSession(
+            session.messages,
+            hadToolCalls,
+            `${message.endpointKind} ${message.timestamp.toISOString()}`
+          )
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error)
+          logger.error({ sessionId: message.sessionId, error: errorMessage }, 'Error processing message')
+
+          // Remove failed user message to keep history clean
+          session.messages.pop()
+
+          await endpoint.send({
+            text: `Sorry, something went wrong: ${errorMessage}`,
+            sessionId: message.sessionId,
+            endpointKind: message.endpointKind,
+          })
+        }
+      } finally {
+        endOperation()
       }
     },
 
     async sendProactive(params: { sessionId: string, endpointKind: string, text: string }): Promise<void> {
-      const endpoint = endpoints.get(params.endpointKind)
-      if (!endpoint) {
-        logger.error({ endpointKind: params.endpointKind }, 'No endpoint registered for proactive send')
+      beginOperation()
+      try {
+        const endpoint = endpoints.get(params.endpointKind)
+        if (!endpoint) {
+          logger.error({ endpointKind: params.endpointKind }, 'No endpoint registered for proactive send')
+          return
+        }
+
+        const session = config.sessionStore.getOrCreate(params.sessionId, params.endpointKind)
+
+        // Inject system prompt if fresh session
+        if (session.messages.length === 0) {
+          const systemPrompt = buildFullSystemPrompt(endpoint.profile)
+          config.sessionStore.addMessage(session.id, { role: 'system', content: systemPrompt })
+        }
+
+        // Add the proactive message as a user message
+        config.sessionStore.addMessage(session.id, { role: 'user', content: params.text })
+
+        const toolContext = { sessionId: params.sessionId, endpointKind: params.endpointKind }
+        const memoryContext = getMemoryContext(params.text)
+        const llmMessages = memoryContext
+          ? [{ role: 'system', content: memoryContext } as ChatMessage, ...session.messages]
+          : session.messages
+        let hadToolCalls = false
+
+        try {
+          const response = await chatWithTools(config.client, llmMessages, {
+            model: config.model,
+            ...mergedToolOptions,
+            toolContext,
+            onToolCall: () => {
+              hadToolCalls = true
+            },
+          })
+
+          const content = response.choices[0]?.message?.content
+          if (!content) return
+
+          config.sessionStore.addMessage(session.id, { role: 'assistant', content })
+
+          await endpoint.send({
+            text: content,
+            sessionId: params.sessionId,
+            endpointKind: params.endpointKind,
+          })
+
+          summarizeSession(
+            session.messages,
+            hadToolCalls,
+            `${params.endpointKind} ${new Date().toISOString()}`
+          )
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error)
+          logger.error({ sessionId: params.sessionId, error: errorMessage }, 'Error in proactive send')
+          session.messages.pop()
+        }
+      } finally {
+        endOperation()
+      }
+    },
+
+    async waitForIdle(timeoutMs: number = 3000): Promise<void> {
+      if (activeOperations === 0) {
         return
       }
 
-      const session = config.sessionStore.getOrCreate(params.sessionId, params.endpointKind)
+      let timedOut = false
+      let timeoutHandle: ReturnType<typeof setTimeout> | undefined
 
-      // Inject system prompt if fresh session
-      if (session.messages.length === 0) {
-        const systemPrompt = buildFullSystemPrompt(endpoint.profile)
-        config.sessionStore.addMessage(session.id, { role: 'system', content: systemPrompt })
+      await Promise.race([
+        new Promise<void>((resolve) => {
+          idleResolvers.add(resolve)
+        }),
+        new Promise<void>((resolve) => {
+          timeoutHandle = setTimeout(() => {
+            timedOut = true
+            resolve()
+          }, timeoutMs)
+        }),
+      ])
+
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle)
       }
 
-      // Add the proactive message as a user message
-      config.sessionStore.addMessage(session.id, { role: 'user', content: params.text })
+      if (timedOut && activeOperations > 0) {
+        logger.warn(
+          { activeOperations, timeoutMs },
+          'Timed out waiting for active operations to finish'
+        )
+      }
+    },
 
-      const toolContext = { sessionId: params.sessionId, endpointKind: params.endpointKind }
+    async flushMemoryWrites(timeoutMs: number = 3000): Promise<void> {
+      if (!memoryService || pendingMemoryWrites.size === 0) {
+        return
+      }
 
-      try {
-        const response = await chatWithTools(config.client, session.messages, {
-          model: config.model,
-          ...mergedToolOptions,
-          toolContext,
-        })
+      const writes = [...pendingMemoryWrites]
+      let timedOut = false
+      let timeoutHandle: ReturnType<typeof setTimeout> | undefined
 
-        const content = response.choices[0]?.message?.content
-        if (!content) return
+      await Promise.race([
+        Promise.allSettled(writes),
+        new Promise<void>((resolve) => {
+          timeoutHandle = setTimeout(() => {
+            timedOut = true
+            resolve()
+          }, timeoutMs)
+        }),
+      ])
 
-        config.sessionStore.addMessage(session.id, { role: 'assistant', content })
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle)
+      }
 
-        await endpoint.send({
-          text: content,
-          sessionId: params.sessionId,
-          endpointKind: params.endpointKind,
-        })
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        logger.error({ sessionId: params.sessionId, error: errorMessage }, 'Error in proactive send')
-        session.messages.pop()
+      if (timedOut && pendingMemoryWrites.size > 0) {
+        logger.warn(
+          { pending: pendingMemoryWrites.size, timeoutMs },
+          'Timed out waiting for pending memory writes'
+        )
       }
     },
 

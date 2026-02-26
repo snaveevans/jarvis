@@ -62,6 +62,9 @@ jarvis chat "Hello" -m "hf:model-name" -t 0.9
 
 # Read prompt from a file
 jarvis chat --file ./prompt.txt
+
+# Disable memory for one invocation
+jarvis chat "Quick question" --no-memory
 ```
 
 ### Chat with Tools
@@ -72,9 +75,10 @@ Chat with tool calling enabled — Jarvis can read files, search code, run shell
 jarvis chat-with-tools "Read README.md and summarize it"
 jarvis chat-with-tools "What does package.json contain?"
 jarvis chat-with-tools --file ./prompt.txt
+jarvis chat-with-tools "Debug this" --no-memory
 ```
 
-Available tools: `read`, `glob`, `grep`, `edit`, `write`, `shell`, `ask_user`, `todo_list`, `web_fetch`, `sub_agent`, `read_file`.
+Available tools include: `read`, `glob`, `grep`, `edit`, `write`, `shell`, `ask_user`, `todo_list`, `web_fetch`, `sub_agent`, `read_file`, plus memory tools (`memory_search`, `memory_store`) when memory is enabled.
 
 ### Telegram Bot
 
@@ -148,6 +152,23 @@ Jarvis: Reminder: take the laundry out
 Reminder data persists to `data/scheduled-messages.json` and survives process restarts.
 Cancellation is session-scoped by default; use `cancel_scheduled_message(message_id, global=true)` for explicit cross-session cancellation.
 
+### Memory
+
+Jarvis includes local durable memory backed by SQLite (`~/.jarvis/memory.db` by default). It uses bounded auto-retrieval to add relevant context without bloating prompts.
+Schema migration is automatic on first memory use; no manual migration command is required.
+
+```bash
+# Search/list/stats/export memory
+jarvis memory search "jwt auth"
+jarvis memory list --type preference --limit 20
+jarvis memory stats
+jarvis memory export
+
+# Clear with confirmation (or bypass prompt for scripts)
+jarvis memory clear
+jarvis memory clear --type fact --yes
+```
+
 ### List Models
 
 ```bash
@@ -169,6 +190,7 @@ Endpoints (Telegram, CLI)
 
 - **Endpoints** receive inbound messages and deliver outbound responses. Each endpoint declares a profile (max message length, tone, formatting) that shapes the system prompt.
 - **Dispatcher** coordinates everything: resolves sessions, builds context-aware system prompts, calls the LLM, and routes responses back through the right endpoint. Accepts `extraTools` (e.g., reminder tools) alongside the base tool set.
+- **Memory** provides durable recall via SQLite + FTS5 and is injected in bounded form when relevant.
 - **Sessions** track conversation history per endpoint+user, keyed by IDs like `telegram:12345` or `cli:default`.
 - **Triggers** (cron) send proactive messages through endpoints on a schedule.
 - **Skills** are markdown instruction files (`src/skills/*.md`) that teach the agent how to combine tools. A compact summary from each skill's frontmatter is injected into the system prompt; the agent can `read` the full file for detailed guidance.
@@ -189,6 +211,10 @@ src/
 │   └── store.ts           # In-memory session store
 ├── triggers/
 │   └── cron.ts            # Interval-based scheduled tasks
+├── memory/
+│   ├── db.ts              # SQLite schema/migrations
+│   ├── service.ts         # Memory service (search/store/summarize/stats)
+│   └── types.ts           # Memory interfaces and enums
 ├── skills/
 │   ├── types.ts           # SkillFrontmatter interface
 │   ├── index.ts           # SkillRegistry: reads frontmatter, builds prompt block
@@ -201,6 +227,8 @@ src/
 └── tools/
     ├── index.ts           # Base tool registry and executor
     ├── schedule-message.ts # Generic scheduled-message tools factory (+ persistence)
+    ├── memory-search.ts   # memory_search tool
+    ├── memory-store.ts    # memory_store tool
     ├── read.ts, glob.ts, grep.ts, edit.ts, write.ts, shell.ts, ...
     └── types.ts           # Tool type definitions (+ ToolExecutionContext)
 ```
@@ -212,6 +240,7 @@ src/
 | `SYNTHETIC_API_KEY` | Yes | API key from [synthetic.new](https://synthetic.new/) |
 | `DEFAULT_MODEL` | No | Default model (avoids `-m` flag every time) |
 | `TELEGRAM_BOT_TOKEN` | For Telegram | Bot token from [@BotFather](https://t.me/BotFather) |
+| `JARVIS_MEMORY_DIR` | No | Directory for memory database (default `~/.jarvis`) |
 | `JARVIS_LOG_LEVEL` | No | Log level (`debug`, `info`, `warn`, `error`, `silent`) |
 | `JARVIS_LOG_FILE` | No | Path to write logs to a file |
 

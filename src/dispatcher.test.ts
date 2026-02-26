@@ -6,6 +6,7 @@ import { createInMemorySessionStore } from './sessions/store.ts'
 
 import type { EndpointProfile, Endpoint, OutboundMessage, InboundMessage } from './endpoints/types.ts'
 import type { ChatCompletionResponse, ChatMessage } from './llm/types.ts'
+import type { MemoryService } from './memory/index.ts'
 
 function makeProfile(overrides: Partial<EndpointProfile> = {}): EndpointProfile {
   return {
@@ -287,5 +288,177 @@ describe('createDispatcher', () => {
 
     stop()
     assert.ok(stopCalled)
+  })
+
+  test('flushMemoryWrites waits for in-flight summaries', async () => {
+    const store = createInMemorySessionStore()
+    const endpoint = makeMockEndpoint()
+    let releaseSummary: (() => void) | undefined
+    let summaryCompleted = false
+
+    const client = makeMockClient('Needs summary')
+    const memoryService: MemoryService = {
+      dbPath: '/tmp/memory.db',
+      search: () => [],
+      getRecent: () => [],
+      store: () => ({ deduplicated: false, memory: {
+        id: 1,
+        content: '',
+        type: 'fact',
+        tags: [],
+        createdAt: new Date().toISOString(),
+        tokenCount: 1,
+      } }),
+      clear: () => 0,
+      exportAll: () => [],
+      getStats: () => ({
+        dbPath: '/tmp/memory.db',
+        dbSizeBytes: 0,
+        totalCount: 0,
+        totalTokenCount: 0,
+        byType: { preference: 0, fact: 0, conversation_summary: 0 },
+      }),
+      getAutoContext: () => undefined,
+      summarizeAndStore: async () => {
+        await new Promise<void>((resolve) => {
+          releaseSummary = resolve
+        })
+        summaryCompleted = true
+      },
+      close: () => {},
+    }
+
+    const dispatcher = createDispatcher({
+      client,
+      sessionStore: store,
+      model: 'test-model',
+      logger: { level: 'silent' },
+      memoryService,
+    })
+    dispatcher.registerEndpoint(endpoint)
+
+    await dispatcher.handleInbound({
+      text: 'Remember this',
+      sessionId: 'test:flush',
+      endpointKind: 'test',
+      timestamp: new Date(),
+    })
+
+    const flushPromise = dispatcher.flushMemoryWrites(500)
+    assert.equal(summaryCompleted, false)
+    releaseSummary?.()
+    await flushPromise
+    assert.equal(summaryCompleted, true)
+  })
+
+  test('waitForIdle waits for active inbound operations', async () => {
+    const store = createInMemorySessionStore()
+    const endpoint = makeMockEndpoint()
+    const client = {
+      async chat(): Promise<ChatCompletionResponse> {
+        await new Promise(resolve => setTimeout(resolve, 40))
+        return {
+          id: 'slow',
+          object: 'chat.completion',
+          created: Date.now(),
+          model: 'test-model',
+          choices: [{
+            index: 0,
+            message: { role: 'assistant' as const, content: 'Done' },
+            finish_reason: 'stop',
+          }],
+        }
+      },
+    }
+
+    const dispatcher = createDispatcher({
+      client,
+      sessionStore: store,
+      model: 'test-model',
+      logger: { level: 'silent' },
+    })
+    dispatcher.registerEndpoint(endpoint)
+
+    const pending = dispatcher.handleInbound({
+      text: 'slow request',
+      sessionId: 'test:slow',
+      endpointKind: 'test',
+      timestamp: new Date(),
+    })
+
+    await dispatcher.waitForIdle(1000)
+    await pending
+    assert.equal(endpoint.sent.length, 1)
+  })
+
+  test('injects memory context when available', async () => {
+    const store = createInMemorySessionStore()
+    const endpoint = makeMockEndpoint()
+    let observedMessages: ChatMessage[] = []
+    let summarizeCalled = false
+
+    const client = {
+      async chat(messages: ChatMessage[]): Promise<ChatCompletionResponse> {
+        observedMessages = messages
+        return {
+          id: 'mem-test',
+          object: 'chat.completion',
+          created: Date.now(),
+          model: 'test-model',
+          choices: [{
+            index: 0,
+            message: { role: 'assistant' as const, content: 'Response with memory' },
+            finish_reason: 'stop',
+          }],
+        }
+      },
+    }
+
+    const memoryService: MemoryService = {
+      dbPath: '/tmp/memory.db',
+      search: () => [],
+      getRecent: () => [],
+      store: () => ({ deduplicated: false, memory: {
+        id: 1,
+        content: '',
+        type: 'fact',
+        tags: [],
+        createdAt: new Date().toISOString(),
+        tokenCount: 1,
+      } }),
+      clear: () => 0,
+      exportAll: () => [],
+      getStats: () => ({
+        dbPath: '/tmp/memory.db',
+        dbSizeBytes: 0,
+        totalCount: 0,
+        totalTokenCount: 0,
+        byType: { preference: 0, fact: 0, conversation_summary: 0 },
+      }),
+      getAutoContext: () => 'Relevant context from memory:\n- [fact] Existing project fact',
+      summarizeAndStore: async () => { summarizeCalled = true },
+      close: () => {},
+    }
+
+    const dispatcher = createDispatcher({
+      client,
+      sessionStore: store,
+      model: 'test-model',
+      logger: { level: 'silent' },
+      memoryService,
+    })
+    dispatcher.registerEndpoint(endpoint)
+
+    await dispatcher.handleInbound({
+      text: 'Question',
+      sessionId: 'test:memory',
+      endpointKind: 'test',
+      timestamp: new Date(),
+    })
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    assert.equal(observedMessages[0].role, 'system')
+    assert.ok(observedMessages[0].content.includes('Relevant context from memory'))
+    assert.ok(summarizeCalled)
   })
 })

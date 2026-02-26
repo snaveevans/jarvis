@@ -77,7 +77,7 @@ CREATE TABLE memories (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   content     TEXT NOT NULL,
   type        TEXT NOT NULL CHECK (type IN ('preference', 'fact', 'conversation_summary')),
-  tags        TEXT,            -- JSON array, e.g. '["typescript","auth"]'
+  tags        TEXT NOT NULL DEFAULT '[]', -- JSON array, e.g. '["typescript","auth"]'
   source      TEXT,            -- origin context, e.g. "chat 2026-02-25T14:30:00Z"
   created_at  TEXT NOT NULL DEFAULT (datetime('now')),
   token_count INTEGER NOT NULL -- estimated token count of content
@@ -111,6 +111,14 @@ END;
 
 Schema versioning via `PRAGMA user_version`. Incremented on each migration.
 
+### Migration Lifecycle
+
+- Migrations run automatically when memory is initialized (via `createMemoryService()` / `createMemoryDb()`).
+- On startup, Jarvis checks `PRAGMA user_version` and runs forward migrations if needed.
+- Current behavior is idempotent (`CREATE ... IF NOT EXISTS` + trigger creation safeguards), so repeated startups are safe.
+- No manual migration command is required in phase 1.
+- First migration occurs the first time any memory-enabled surface runs (`chat`, `chat-with-tools`, `telegram`, `serve`, or `jarvis memory ...`).
+
 ### Memory Types
 
 | Type | Purpose | Example |
@@ -125,11 +133,10 @@ Schema versioning via `PRAGMA user_version`. Incremented on each migration.
 
 ### Auto-Retrieval (Passive)
 
-Before the first LLM call in `chatWithTools()`:
+Before the first LLM call in a memory-enabled interaction (`chat`, `chat-with-tools`, `telegram`, `serve`):
 
 1. Run FTS5 search against the user's query.
-2. Filter to results above a minimum rank threshold (discard noise).
-3. Take top 5 results, sorted by relevance (FTS5 rank), with recency as a tiebreaker.
+2. Take top 5 results, sorted by relevance (FTS5 BM25 rank), with recency as a tiebreaker.
 4. Sum token counts — stop adding results if the running total exceeds 500 tokens.
 5. Format as a brief system message and prepend to the conversation.
 
@@ -142,7 +149,7 @@ Relevant context from memory:
 - [summary, 2026-02-18] Refactored auth module into separate token and session files
 ```
 
-If no results meet the relevance threshold, inject nothing. Silence is better than noise.
+If no results are found, inject nothing. Silence is better than noise.
 
 ### Tool-Based Retrieval (Active)
 
@@ -150,7 +157,8 @@ The LLM can call `memory_search` to do a deeper, more targeted search — with f
 
 ### Ranking
 
-FTS5's built-in `rank` function (BM25) handles relevance scoring. Results are sorted by `rank` descending, with `created_at` descending as a tiebreaker. No custom scoring needed initially.
+FTS5's BM25 ranking handles relevance scoring. Results are sorted by rank (best match first) with
+`created_at` descending as a tiebreaker. No custom scoring is required initially.
 
 ---
 
@@ -193,7 +201,7 @@ FTS5's built-in `rank` function (BM25) handles relevance scoring. Results are so
 
 ## Auto-Summarization
 
-After `chatWithTools()` completes (and memory is enabled):
+After each completed memory-enabled interaction:
 
 1. Collect the full message array from the session.
 2. Send a summarization prompt to the LLM in a separate, isolated call:
@@ -202,12 +210,15 @@ After `chatWithTools()` completes (and memory is enabled):
    preferences expressed, and facts learned. Omit greetings and filler.
    ```
 3. Store the summary as type `conversation_summary` with `source` set to `"chat {ISO timestamp}"`.
-4. Skip summarization if the conversation was trivial (e.g., single-turn with no tool calls, or total message tokens below a threshold like 200).
+4. Skip summarization if the interaction was trivial. Current threshold:
+   - summarize if any tool call happened, OR
+   - summarize if total non-system message tokens are at least ~200.
 
 **Safeguards**:
 - Summarization is a separate LLM call — it does not consume context from the main conversation.
 - If the summarization call fails (rate limit, network error), log a warning and continue. Memory is best-effort, never blocking.
 - The summarization prompt is hardcoded and not user-configurable (prevents prompt injection into the memory layer).
+- On graceful shutdown (`SIGINT`/`SIGTERM`), Jarvis waits briefly for in-flight summary writes before exit (bounded timeout).
 
 ---
 
@@ -217,16 +228,16 @@ After `chatWithTools()` completes (and memory is enabled):
 
 | Flag | Applies to | Effect |
 |---|---|---|
-| `--no-memory` | `chat`, `chat-with-tools` | Disables auto-retrieval, tool registration, and auto-summarization for this invocation |
+| `--no-memory` | `chat`, `chat-with-tools`, `telegram`, `serve` | Disables memory retrieval/tools/summarization for that invocation |
 
 ### Subcommand: `jarvis memory`
 
 | Command | Effect |
 |---|---|
-| `jarvis memory search <query>` | Search memories by keyword, print results |
+| `jarvis memory search [query]` | Search memories by keyword. Empty query falls back to recent memories. |
 | `jarvis memory list [--type <type>] [--limit <n>]` | List recent memories, optionally filtered |
 | `jarvis memory stats` | Count of memories by type, database file size, total estimated tokens |
-| `jarvis memory clear [--type <type>]` | Delete all memories, or all of a given type. Requires confirmation. |
+| `jarvis memory clear [--type <type>] [--yes]` | Delete all memories or one type. Prompts for confirmation unless `--yes` is set. |
 | `jarvis memory export` | Dump all memories as JSON to stdout |
 
 ---
@@ -243,6 +254,7 @@ src/memory/
 src/tools/
 ├── memory-search.ts   # memory_search tool implementation
 ├── memory-store.ts    # memory_store tool implementation
+├── memory-tools.ts    # Tool factory wiring memory_search + memory_store
 └── ...existing tools
 ```
 
@@ -255,8 +267,8 @@ src/tools/
 | Context pollution | Auto-inject is capped at ~500 tokens / 5 results. Tool results are scoped to one turn. |
 | Runaway storage growth | Token counts tracked per memory. `jarvis memory stats` surfaces total size. Future: TTL or LRU eviction for old summaries. |
 | Duplicate memories | Near-exact duplicate detection on store. |
-| Stale preferences | Preferences are not versioned — a new `memory_store` of the same preference overwrites the old one (via duplicate detection). |
-| Noise in auto-retrieval | FTS5 rank threshold filters low-relevance results. Below threshold = inject nothing. |
+| Stale preferences | Preferences are not versioned. Duplicate/near-duplicate entries dedupe; changed preferences should be stored as new distinct memories. |
+| Noise in auto-retrieval | Retrieval is bounded by result count/token budget and query matching. If nothing matches, nothing is injected. |
 | Summarization failure | Best-effort. Failures are logged and swallowed — never block the main session. |
 | Data sovereignty | Everything is local. Single SQLite file. User can delete `~/.jarvis/memory.db` at any time. `jarvis memory clear` for in-app deletion. |
 | Prompt injection via stored memories | Memories are injected as user-attributed context, not as system instructions. The system prompt does not change based on memory content. |

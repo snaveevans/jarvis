@@ -231,6 +231,40 @@ Created via `createScheduleMessageTools()` factory in `src/tools/schedule-messag
 
 ---
 
+### 12. memory_search / memory_store
+
+Created via `createMemoryTools()` using `MemoryService` (`src/memory/service.ts`) backed by SQLite + FTS5 (`~/.jarvis/memory.db` by default).
+
+#### memory_search
+
+**Intent**: Search stored memories by keyword with optional filters.
+
+| Field | Detail |
+|---|---|
+| Input | `query` (string), optional `type`, optional `limit` (default 5, max 20) |
+| Output | Compact list of matching memories with metadata (type/date/rank/tags) |
+
+**Behavior**:
+- Empty query falls back to recent memories
+- Results are bounded (default 5, hard max 20)
+- Uses FTS5 matching with compact output formatting
+
+#### memory_store
+
+**Intent**: Persist a typed memory for future recall.
+
+| Field | Detail |
+|---|---|
+| Input | `content` (string), `type` (preference/fact/conversation_summary), optional `tags` (string[]) |
+| Output | Confirmation (stored or deduplicated existing memory) |
+
+**Behavior**:
+- Validates non-empty content, allowed type, and tag shape
+- Deduplicates near-exact memory content
+- Stores estimated token count for budgeting/retrieval
+
+---
+
 ## Skills
 
 Skills are **markdown instruction files** that teach the agent how to combine tools for higher-level tasks. They do not define or own tools — if a skill needs a new capability, it's added as a regular tool.
@@ -262,6 +296,7 @@ Need to plan a multi-step task?       -> TodoList
 Need to look something up online?     -> WebFetch
 Need to do something complex/broad?   -> SubAgent
 Need to schedule a delayed message?   -> schedule_message
+Need to recall/store durable knowledge? -> memory_search / memory_store
 ```
 
 ---
