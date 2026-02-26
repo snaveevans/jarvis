@@ -10,7 +10,7 @@ import { LLMClient } from './llm/index.ts'
 import { createLogger } from './logger.ts'
 import { buildPromptInput } from './prompt-input.ts'
 import { createDispatcher } from './dispatcher.ts'
-import { createInMemorySessionStore } from './sessions/store.ts'
+import { createInMemorySessionStore, createSessionHistoryStore } from './sessions/index.ts'
 import { createTelegramEndpoint } from './endpoints/telegram.ts'
 import { createCliEndpoint } from './endpoints/cli.ts'
 import { createCronScheduler } from './triggers/cron.ts'
@@ -32,6 +32,7 @@ import type { ChatMessage } from './llm/index.ts'
 import type { MemoryService, MemoryType } from './memory/index.ts'
 import type { Tool } from './tools/types.ts'
 import type { SkillRegistry } from './skills/index.ts'
+import type { SessionHistoryStore } from './sessions/index.ts'
 
 function parseTelegramAllowedUserIds(configValue: number[] | string | undefined): number[] | undefined {
   if (!configValue) return undefined
@@ -109,6 +110,80 @@ function createSkillTools(
     skillsDir: CUSTOM_SKILLS_DIR,
     allowedToolNames: Array.from(allowedToolNames),
   })
+}
+
+function createHistoryStore(config: Awaited<ReturnType<typeof getConfig>>): SessionHistoryStore | undefined {
+  if (!config.history.enabled) {
+    return undefined
+  }
+  return createSessionHistoryStore({
+    dbPath: config.history.dbPath,
+  })
+}
+
+function createEvictionHandler(params: {
+  client: LLMClient
+  model: string
+  memoryService?: MemoryService
+  logger: ReturnType<typeof createLogger>
+  historyStore?: SessionHistoryStore
+  retentionHours: number
+}): ((sessionId: string, evicted: ChatMessage[], info?: { startSeq: number, endSeq: number }) => void) | undefined {
+  const { client, model, memoryService, logger, historyStore, retentionHours } = params
+
+  if (!memoryService && !historyStore) {
+    return undefined
+  }
+
+  const evaluator = memoryService
+    ? createEvictionEvaluator({
+      client,
+      model,
+      memoryService,
+      logger,
+      onComplete: ({ status, meta }) => {
+        const batchId = meta?.batchId
+        if (!historyStore || !batchId) return
+        historyStore.markBatchStatus(batchId, status)
+        if (status === 'processed') {
+          const purgedCount = historyStore.purgeProcessedMessagesOlderThan(retentionHours)
+          if (purgedCount > 0) {
+            logger.info({ purgedCount }, 'Purged processed historical session messages')
+          }
+        }
+      },
+    })
+    : undefined
+
+  return (sessionId, evicted, info) => {
+    let batchId: number | undefined
+    if (
+      historyStore &&
+      info &&
+      Number.isFinite(info.startSeq) &&
+      Number.isFinite(info.endSeq) &&
+      info.startSeq > 0 &&
+      info.endSeq >= info.startSeq
+    ) {
+      batchId = historyStore.createEvictionBatch(sessionId, info.startSeq, info.endSeq)
+    }
+
+    if (evaluator) {
+      evaluator(sessionId, evicted, {
+        ...info,
+        batchId,
+      })
+      return
+    }
+
+    if (historyStore && batchId) {
+      historyStore.markBatchStatus(batchId, 'processed')
+      const purgedCount = historyStore.purgeProcessedMessagesOlderThan(retentionHours)
+      if (purgedCount > 0) {
+        logger.info({ purgedCount }, 'Purged processed historical session messages')
+      }
+    }
+  }
 }
 
 
@@ -449,6 +524,7 @@ program
   .action(async (message, options) => {
     let memoryService: ReturnType<typeof createMemoryService> | undefined
     let dispatcher: ReturnType<typeof createDispatcher> | undefined
+    let historyStore: SessionHistoryStore | undefined
     try {
       const config = await getConfig()
       const model = options.model ?? config.llm.defaultModel
@@ -476,10 +552,24 @@ program
         })
       }
 
-      const onEvict = memoryService
-        ? createEvictionEvaluator({ client, model, memoryService, logger })
-        : undefined
-      const sessionStore = createInMemorySessionStore({ onEvict })
+      historyStore = createHistoryStore(config)
+      if (historyStore) {
+        historyStore.purgeProcessedMessagesOlderThan(config.history.retentionHours)
+      }
+
+      const onEvict = createEvictionHandler({
+        client,
+        model,
+        memoryService,
+        logger,
+        historyStore,
+        retentionHours: config.history.retentionHours,
+      })
+      const sessionStore = createInMemorySessionStore({
+        onEvict,
+        historyStore,
+        historyReplayMaxMessages: config.history.rehydrateMaxMessages,
+      })
       const cliEndpoint = createCliEndpoint()
       const memoryTools = memoryService ? createMemoryTools(memoryService) : []
       const skillRegistry = createSkillRegistry()
@@ -545,6 +635,7 @@ program
       await dispatcher?.waitForIdle(3000)
       await dispatcher?.flushMemoryWrites(3000)
       memoryService?.close()
+      historyStore?.close()
     }
   })
 
@@ -558,6 +649,7 @@ program
   .option('--no-memory', 'Disable memory features for this invocation')
   .action(async (options) => {
     let memoryService: MemoryService | undefined
+    let historyStore: SessionHistoryStore | undefined
     try {
       const config = await getConfig()
       const model = options.model ?? config.llm.defaultModel
@@ -592,10 +684,24 @@ program
         })
       }
 
-      const onEvict = memoryService
-        ? createEvictionEvaluator({ client, model, memoryService, logger: telegramLogger })
-        : undefined
-      const sessionStore = createInMemorySessionStore({ onEvict })
+      historyStore = createHistoryStore(config)
+      if (historyStore) {
+        historyStore.purgeProcessedMessagesOlderThan(config.history.retentionHours)
+      }
+
+      const onEvict = createEvictionHandler({
+        client,
+        model,
+        memoryService,
+        logger: telegramLogger,
+        historyStore,
+        retentionHours: config.history.retentionHours,
+      })
+      const sessionStore = createInMemorySessionStore({
+        onEvict,
+        historyStore,
+        historyReplayMaxMessages: config.history.rehydrateMaxMessages,
+      })
       const telegramEndpoint = createTelegramEndpoint({
         token,
         allowedUserIds,
@@ -672,6 +778,7 @@ program
         await dispatcher.waitForIdle(5000)
         await dispatcher.flushMemoryWrites(5000)
         await memoryService?.close()
+        historyStore?.close()
         await searchPool.shutdown()
         shellPool.shutdown()
         process.exit(0)
@@ -698,6 +805,7 @@ program
   .option('--no-memory', 'Disable memory features for this invocation')
   .action(async (options) => {
     let memoryService: MemoryService | undefined
+    let historyStore: SessionHistoryStore | undefined
     try {
       const config = await getConfig()
       const model = options.model ?? config.llm.defaultModel
@@ -724,10 +832,24 @@ program
         })
       }
 
-      const onEvict = memoryService
-        ? createEvictionEvaluator({ client, model, memoryService, logger })
-        : undefined
-      const sessionStore = createInMemorySessionStore({ onEvict })
+      historyStore = createHistoryStore(config)
+      if (historyStore) {
+        historyStore.purgeProcessedMessagesOlderThan(config.history.retentionHours)
+      }
+
+      const onEvict = createEvictionHandler({
+        client,
+        model,
+        memoryService,
+        logger,
+        historyStore,
+        retentionHours: config.history.retentionHours,
+      })
+      const sessionStore = createInMemorySessionStore({
+        onEvict,
+        historyStore,
+        historyReplayMaxMessages: config.history.rehydrateMaxMessages,
+      })
       const memoryTools = memoryService ? createMemoryTools(memoryService) : []
 
       const processStartMs = Date.now()
@@ -836,6 +958,7 @@ program
         await dispatcher.waitForIdle(5000)
         await dispatcher.flushMemoryWrites(5000)
         await memoryService?.close()
+        historyStore?.close()
         await searchPool.shutdown()
         shellPool.shutdown()
         process.exit(0)

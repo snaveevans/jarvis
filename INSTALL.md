@@ -309,6 +309,10 @@ Key settings:
 | `JARVIS_MEMORY_DIR` | `~/.jarvis` | Where memory database is stored |
 | `JARVIS_LOG_LEVEL` | `info` | Log verbosity (`debug`/`info`/`warn`/`error`/`silent`) |
 | `JARVIS_LOG_FILE` | _(none)_ | Log file path (enables `read_logs` tool) |
+| `JARVIS_HISTORY_ENABLED` | `true` | Persist user/assistant chat turns for restart recovery |
+| `JARVIS_HISTORY_DB_PATH` | `data/session-history.db` | SQLite file for persisted session history |
+| `JARVIS_HISTORY_RETENTION_HOURS` | `72` | Purge window for processed historical messages |
+| `JARVIS_HISTORY_REHYDRATE_MAX_MESSAGES` | `200` | Max persisted turns replayed into memory per session |
 | `JARVIS_SEARCH_PROVIDER` | `brave` | `web_search` backend (`brave` or `synthetic`) |
 | `BRAVE_API_KEY` | _(none)_ | Brave Search API key for `web_search` |
 | `SYNTHETIC_SEARCH_API_KEY` | _(none)_ | Synthetic `/search` API key for `web_search` |

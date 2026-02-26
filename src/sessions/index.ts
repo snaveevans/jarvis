@@ -1,3 +1,5 @@
 export type { Session } from './types.ts'
 export type { SessionStore, SessionStoreConfig } from './store.ts'
 export { createInMemorySessionStore } from './store.ts'
+export type { SessionHistoryStore, SessionHistoryConfig, SessionHistoryMessage, EvictionBatchStatus } from './history-store.ts'
+export { createSessionHistoryStore } from './history-store.ts'

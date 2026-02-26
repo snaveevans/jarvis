@@ -44,6 +44,12 @@
     "level": "JARVIS_LOG_LEVEL",
     "file": "JARVIS_LOG_FILE"
   },
+  "history": {
+    "enabled": "JARVIS_HISTORY_ENABLED",
+    "dbPath": "JARVIS_HISTORY_DB_PATH",
+    "retentionHours": "JARVIS_HISTORY_RETENTION_HOURS",
+    "rehydrateMaxMessages": "JARVIS_HISTORY_REHYDRATE_MAX_MESSAGES"
+  },
   "search": {
     "provider": "JARVIS_SEARCH_PROVIDER",
     "defaultLimit": "JARVIS_SEARCH_DEFAULT_LIMIT",

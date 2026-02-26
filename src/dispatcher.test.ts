@@ -221,6 +221,48 @@ describe('createDispatcher', () => {
     assert.equal(session.messages[2].content, 'Reply 1')
   })
 
+  test('handleInbound stores user-visible assistant content', async () => {
+    const store = createInMemorySessionStore()
+    const client = {
+      async chat(_messages: ChatMessage[]): Promise<ChatCompletionResponse> {
+        return {
+          id: 'test',
+          object: 'chat.completion',
+          created: Date.now(),
+          model: 'test-model',
+          choices: [{
+            index: 0,
+            message: { role: 'assistant' as const, content: '<think>internal</think>Visible reply' },
+            finish_reason: 'stop',
+          }],
+        }
+      },
+      toUserVisibleContent(content: string): string {
+        return content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim()
+      },
+    }
+    const endpoint = makeMockEndpoint()
+
+    const dispatcher = createDispatcher({
+      client,
+      sessionStore: store,
+      model: 'test-model',
+      logger: { level: 'silent' },
+    })
+    dispatcher.registerEndpoint(endpoint)
+
+    await dispatcher.handleInbound({
+      text: 'Message 1',
+      sessionId: 'test:1',
+      endpointKind: 'test',
+      timestamp: new Date(),
+    })
+
+    const session = store.get('test:1')!
+    assert.equal(session.messages[2].content, 'Visible reply')
+    assert.equal(endpoint.sent[0].text, 'Visible reply')
+  })
+
   test('handleInbound removes user message on error', async () => {
     const store = createInMemorySessionStore()
     const client = {

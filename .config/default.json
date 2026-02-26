@@ -43,6 +43,12 @@
     "level": "info",
     "file": ""
   },
+  "history": {
+    "enabled": true,
+    "dbPath": "data/session-history.db",
+    "retentionHours": 72,
+    "rehydrateMaxMessages": 200
+  },
   "workers": {
     "searchPoolSize": 2,
     "shellPoolSize": 3

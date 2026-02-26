@@ -84,6 +84,17 @@ const configSchema = z.object({
     level: z.enum(['debug', 'info', 'warn', 'error', 'silent']),
     file: z.string(),
   }),
+  history: z.object({
+    enabled: z.union([z.boolean(), z.string()]).transform((val) => {
+      if (typeof val === 'string') {
+        return val.toLowerCase() === 'true'
+      }
+      return val
+    }).default(true),
+    dbPath: z.string().default('data/session-history.db'),
+    retentionHours: numStr(72),
+    rehydrateMaxMessages: numStr(200),
+  }),
   workers: z.object({
     searchPoolSize: z.number().default(2),
     shellPoolSize: z.number().default(3),
@@ -151,6 +162,10 @@ const envMapping: Record<string, string[]> = {
   JARVIS_TOKEN_ESTIMATION_CHARS_PER_TOKEN: ['memory', 'tokenEstimationCharsPerToken'],
   JARVIS_LOG_LEVEL: ['logging', 'level'],
   JARVIS_LOG_FILE: ['logging', 'file'],
+  JARVIS_HISTORY_ENABLED: ['history', 'enabled'],
+  JARVIS_HISTORY_DB_PATH: ['history', 'dbPath'],
+  JARVIS_HISTORY_RETENTION_HOURS: ['history', 'retentionHours'],
+  JARVIS_HISTORY_REHYDRATE_MAX_MESSAGES: ['history', 'rehydrateMaxMessages'],
   JARVIS_SEARCH_PROVIDER: ['search', 'provider'],
   JARVIS_SEARCH_DEFAULT_LIMIT: ['search', 'defaultLimit'],
   JARVIS_SEARCH_MAX_LIMIT: ['search', 'maxLimit'],
@@ -319,6 +334,12 @@ export function logConfig(logger: { info: (obj: Record<string, unknown>, msg: st
     logging: {
       level: config.logging.level,
       file: config.logging.file || '(none)',
+    },
+    history: {
+      enabled: config.history.enabled,
+      dbPath: config.history.dbPath,
+      retentionHours: config.history.retentionHours,
+      rehydrateMaxMessages: config.history.rehydrateMaxMessages,
     },
     workers: {
       searchPoolSize: config.workers.searchPoolSize,

@@ -15,6 +15,12 @@ interface EvictionFinding {
   tags: string[]
 }
 
+export interface EvictionRunMeta {
+  batchId?: number
+  startSeq?: number
+  endSeq?: number
+}
+
 type EvaluatorLogger = {
   info?: (meta: unknown, message?: string) => void
   warn?: (meta: unknown, message?: string) => void
@@ -25,6 +31,7 @@ export interface EvictionEvaluatorConfig {
   model: string
   memoryService: MemoryService
   logger?: EvaluatorLogger
+  onComplete?: (result: { sessionId: string, status: 'processed' | 'failed', meta?: EvictionRunMeta }) => void
 }
 
 /**
@@ -59,18 +66,21 @@ Return an empty array [] if nothing is worth saving. Be selective — only extra
 
 Respond ONLY with a valid JSON array, no other text.`
 
-export function createEvictionEvaluator(config: EvictionEvaluatorConfig): (sessionId: string, evicted: ChatMessage[]) => void {
-  const { client, model, memoryService, logger } = config
+export function createEvictionEvaluator(
+  config: EvictionEvaluatorConfig
+): (sessionId: string, evicted: ChatMessage[], meta?: EvictionRunMeta) => void {
+  const { client, model, memoryService, logger, onComplete } = config
 
-  return (sessionId: string, evicted: ChatMessage[]) => {
+  return (sessionId: string, evicted: ChatMessage[], meta?: EvictionRunMeta) => {
     // Apply batch threshold: skip trivial evictions
     const nonSystemMessages = evicted.filter(m => m.role !== 'system')
-    if (nonSystemMessages.length < MIN_EVICT_MESSAGES) {
-      const totalTokens = nonSystemMessages.reduce((sum, m) => sum + estimateTokenCount(m.content), 0)
-      if (totalTokens < MIN_EVICT_TOKENS) {
-        return
+      if (nonSystemMessages.length < MIN_EVICT_MESSAGES) {
+        const totalTokens = nonSystemMessages.reduce((sum, m) => sum + estimateTokenCount(m.content), 0)
+        if (totalTokens < MIN_EVICT_TOKENS) {
+          onComplete?.({ sessionId, status: 'processed', meta })
+          return
+        }
       }
-    }
 
     // Fire-and-forget LLM evaluation
     const evaluate = (async () => {
@@ -96,6 +106,7 @@ export function createEvictionEvaluator(config: EvictionEvaluatorConfig): (sessi
         let raw = response.choices[0]?.message?.content?.trim()
         if (!raw) {
           logger?.info?.({ sessionId }, 'Eviction evaluator: empty response')
+          onComplete?.({ sessionId, status: 'processed', meta })
           return
         }
 
@@ -109,11 +120,13 @@ export function createEvictionEvaluator(config: EvictionEvaluatorConfig): (sessi
           findings = JSON.parse(extractJson(raw))
         } catch {
           logger?.warn?.({ sessionId, raw: raw.slice(0, 200) }, 'Eviction evaluator: invalid JSON')
+          onComplete?.({ sessionId, status: 'failed', meta })
           return
         }
 
         if (!Array.isArray(findings) || findings.length === 0) {
           logger?.info?.({ sessionId }, 'Eviction evaluator: no findings')
+          onComplete?.({ sessionId, status: 'processed', meta })
           return
         }
 
@@ -140,11 +153,13 @@ export function createEvictionEvaluator(config: EvictionEvaluatorConfig): (sessi
           { sessionId, findingsCount: findings.length, storedCount: stored },
           'Eviction evaluator completed'
         )
+        onComplete?.({ sessionId, status: 'processed', meta })
       } catch (err) {
         logger?.warn?.(
           { sessionId, error: err instanceof Error ? err.message : String(err) },
           'Eviction evaluator: LLM call failed'
         )
+        onComplete?.({ sessionId, status: 'failed', meta })
       }
     })()
 

@@ -13,7 +13,7 @@ import type { SkillRegistry } from './skills/index.ts'
 import type { EventStore } from './telemetry/event-store.ts'
 
 const DEFAULT_BASE_PROMPT =
-  'You are a helpful assistant with access to tools: read, glob, grep, edit, write, shell, ask_user, todo_list, web_fetch, web_search, sub_agent, and read_file. Prefer specialized tools over shell for file operations.'
+  'You are a helpful assistant with access to tools: read, glob, grep, edit, write, shell, ask_user, todo_list, web_fetch, web_search, sub_agent, and read_file. Prefer specialized tools over shell for file operations. Conversation history may be restored after restarts; treat prior messages in context as authoritative.'
 
 export interface DispatcherConfig {
   client: ChatWithToolsClient
@@ -208,6 +208,8 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
         const systemPrompt = buildFullSystemPrompt(endpoint.profile)
         if (session.messages.length === 0) {
           config.sessionStore.addMessage(session.id, { role: 'system', content: systemPrompt })
+        } else if (session.messages[0]?.role !== 'system') {
+          session.messages.unshift({ role: 'system', content: systemPrompt })
         } else if (session.messages[0]?.role === 'system' && session.messages[0].content !== systemPrompt) {
           session.messages[0] = { role: 'system', content: systemPrompt }
         }
@@ -295,8 +297,8 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
           }
           const userVisibleContent = toUserVisibleContent(content)
 
-          // Store assistant response
-          config.sessionStore.addMessage(session.id, { role: 'assistant', content })
+          // Store only user-visible content so replayed history never includes hidden reasoning.
+          config.sessionStore.addMessage(session.id, { role: 'assistant', content: userVisibleContent })
 
           await endpoint.send({
             text: userVisibleContent,
@@ -346,6 +348,8 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
         const systemPrompt = buildFullSystemPrompt(endpoint.profile)
         if (session.messages.length === 0) {
           config.sessionStore.addMessage(session.id, { role: 'system', content: systemPrompt })
+        } else if (session.messages[0]?.role !== 'system') {
+          session.messages.unshift({ role: 'system', content: systemPrompt })
         } else if (session.messages[0]?.role === 'system' && session.messages[0].content !== systemPrompt) {
           session.messages[0] = { role: 'system', content: systemPrompt }
         }
@@ -401,7 +405,7 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
             iteration: 0,
           })
 
-          config.sessionStore.addMessage(session.id, { role: 'assistant', content })
+          config.sessionStore.addMessage(session.id, { role: 'assistant', content: userVisibleContent })
 
           await endpoint.send({
             text: userVisibleContent,

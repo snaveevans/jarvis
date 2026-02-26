@@ -1,7 +1,10 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert'
+import { mkdtemp, rm } from 'node:fs/promises'
+import path from 'node:path'
 
 import { createInMemorySessionStore } from './store.ts'
+import { createSessionHistoryStore } from './history-store.ts'
 
 describe('createInMemorySessionStore', () => {
   test('get returns undefined for unknown session', () => {
@@ -67,5 +70,47 @@ describe('createInMemorySessionStore', () => {
   test('addMessage is safe on unknown session', () => {
     const store = createInMemorySessionStore()
     store.addMessage('nonexistent', { role: 'user', content: 'hello' })
+  })
+
+  test('rehydrates user/assistant history for an existing session id', async () => {
+    const tempDir = await mkdtemp(path.join(process.cwd(), '.tmp-session-store-'))
+    const historyStore = createSessionHistoryStore({ dbPath: path.join(tempDir, 'session-history.db') })
+    try {
+      historyStore.appendMessage('s1', 'cli', 1, 'user', 'hello')
+      historyStore.appendMessage('s1', 'cli', 2, 'assistant', 'hi')
+
+      const store = createInMemorySessionStore({
+        historyStore,
+        historyReplayMaxMessages: 20,
+      })
+      const session = store.getOrCreate('s1', 'cli')
+      assert.equal(session.messages.length, 2)
+      assert.equal(session.messages[0].role, 'user')
+      assert.equal(session.messages[1].role, 'assistant')
+      assert.equal(session.messages[1].content, 'hi')
+    } finally {
+      historyStore.close()
+      await rm(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  test('rehydrates assistant history without think tags', async () => {
+    const tempDir = await mkdtemp(path.join(process.cwd(), '.tmp-session-store-'))
+    const historyStore = createSessionHistoryStore({ dbPath: path.join(tempDir, 'session-history.db') })
+    try {
+      historyStore.appendMessage('s1', 'cli', 1, 'user', 'hello')
+      historyStore.appendMessage('s1', 'cli', 2, 'assistant', '<think>internal</think>visible')
+
+      const store = createInMemorySessionStore({
+        historyStore,
+        historyReplayMaxMessages: 20,
+      })
+      const session = store.getOrCreate('s1', 'cli')
+      assert.equal(session.messages.length, 2)
+      assert.equal(session.messages[1].content, 'visible')
+    } finally {
+      historyStore.close()
+      await rm(tempDir, { recursive: true, force: true })
+    }
   })
 })
