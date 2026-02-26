@@ -1,6 +1,7 @@
 import { estimateTokenCount } from './helpers.ts'
 
 import type { ChatWithToolsClient } from '../llm/chat-with-tools.ts'
+import type { LLMClient } from '../llm/client.ts'
 import type { ChatMessage } from '../llm/types.ts'
 import type { MemoryService } from './service.ts'
 import type { MemoryType } from './types.ts'
@@ -20,10 +21,31 @@ type EvaluatorLogger = {
 }
 
 export interface EvictionEvaluatorConfig {
-  client: ChatWithToolsClient
+  client: ChatWithToolsClient & Partial<Pick<LLMClient, 'toUserVisibleContent'>>
   model: string
   memoryService: MemoryService
   logger?: EvaluatorLogger
+}
+
+/**
+ * Extract JSON from LLM response that may contain thinking tags,
+ * markdown code fences, or other wrapper text.
+ */
+function extractJson(raw: string): string {
+  // Strip markdown code fences (```json ... ``` or ``` ... ```)
+  const fenceMatch = raw.match(/```(?:json)?\s*\n?([\s\S]*?)```/)
+  if (fenceMatch) {
+    return fenceMatch[1].trim()
+  }
+
+  // Try to find a JSON array directly
+  const bracketStart = raw.indexOf('[')
+  const bracketEnd = raw.lastIndexOf(']')
+  if (bracketStart !== -1 && bracketEnd > bracketStart) {
+    return raw.slice(bracketStart, bracketEnd + 1)
+  }
+
+  return raw
 }
 
 const EVALUATOR_SYSTEM_PROMPT = `You are a conversation memory evaluator. You receive messages that are being evicted from an assistant's conversation context window.
@@ -71,15 +93,20 @@ export function createEvictionEvaluator(config: EvictionEvaluatorConfig): (sessi
           { model, temperature: 0.2, max_tokens: 500 }
         )
 
-        const raw = response.choices[0]?.message?.content?.trim()
+        let raw = response.choices[0]?.message?.content?.trim()
         if (!raw) {
           logger?.info?.({ sessionId }, 'Eviction evaluator: empty response')
           return
         }
 
+        // Strip provider-specific wrappers (e.g. MiniMax <think> tags)
+        if (typeof client.toUserVisibleContent === 'function') {
+          raw = client.toUserVisibleContent(raw)
+        }
+
         let findings: EvictionFinding[]
         try {
-          findings = JSON.parse(raw)
+          findings = JSON.parse(extractJson(raw))
         } catch {
           logger?.warn?.({ sessionId, raw: raw.slice(0, 200) }, 'Eviction evaluator: invalid JSON')
           return
