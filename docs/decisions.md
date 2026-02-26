@@ -71,6 +71,13 @@ Each decision follows this format:
 - **Context**: SQLite operations (via better-sqlite3) block the event loop. Grep and shell commands can also cause delays. For a single-user bare metal system, worker threads provide the right balance: lighter than separate services, shared memory possible, no external dependencies like Redis or message queues needed.
 - **Consequences**: Main thread stays responsive. SQLite runs in a dedicated worker thread where synchronous operations are fine. Shell commands get true process isolation via a pool. File search uses worker threads for CPU-intensive regex. All within one Node.js process for simple deployment.
 
+### Parallel tool execution with concurrency limits
+
+- **Date**: 2026-02-26
+- **Decision**: Execute multiple tool calls in parallel with configurable concurrency limit (default: 5), maintaining result ordering for the LLM
+- **Context**: When the LLM requests multiple tools in a single response, executing them sequentially creates unnecessary latency. However, unbounded parallelism could overwhelm system resources. The solution uses `Promise.allSettled` with a custom `withConcurrencyLimit()` implementation that executes tools concurrently while respecting a limit, then orders results by their original call index before sending to the LLM.
+- **Consequences**: Independent tools (like `glob` + `grep`) now execute concurrently, reducing total response time. The default limit of 5 prevents resource exhaustion. Result ordering is preserved so the LLM receives responses in the expected sequence. One tool failure doesn't block others (allSettled semantics). Trade-off: Tools must be async-safe (no shared mutable state), which is already true for the existing tool set.
+
 - **Date**: 2025-02-25
 - **Decision**: Use Node.js + TypeScript (native execution via `--loader` or `.mjs`)
 - **Context**: Latest Node with native TypeScript support. Types aid intent and understanding. npm ecosystem is extensive. No compilation step needed since Jarvis will write its own code.

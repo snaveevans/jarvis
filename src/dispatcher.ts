@@ -26,6 +26,8 @@ export interface DispatcherConfig {
   memoryService?: MemoryService
   summaryWindowMs?: number
   autoSummarize?: boolean
+  searchPool?: ToolExecutionContext['searchPool']
+  shellPool?: ToolExecutionContext['shellPool']
 }
 
 export interface Dispatcher {
@@ -122,13 +124,13 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
     return prompt
   }
 
-  function getMemoryContext(query: string): string | undefined {
+  async function getMemoryContext(query: string): Promise<string | undefined> {
     if (!memoryService) {
       return undefined
     }
 
     try {
-      return memoryService.getAutoContext(query)
+      return await memoryService.getAutoContext(query)
     } catch (error) {
       logger.warn(
         { error: error instanceof Error ? error.message : String(error) },
@@ -259,8 +261,13 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
         const interactionStart = session.messages.length
         config.sessionStore.addMessage(session.id, { role: 'user', content: message.text })
 
-        const toolContext = { sessionId: message.sessionId, endpointKind: message.endpointKind }
-        const memoryContext = getMemoryContext(message.text)
+        const toolContext: ToolExecutionContext = {
+          sessionId: message.sessionId,
+          endpointKind: message.endpointKind,
+          searchPool: config.searchPool,
+          shellPool: config.shellPool,
+        }
+        const memoryContext = await getMemoryContext(message.text)
         const llmMessages = memoryContext
           ? [{ role: 'system', content: memoryContext } as ChatMessage, ...session.messages]
           : session.messages
@@ -351,8 +358,13 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
         const interactionStart = session.messages.length
         config.sessionStore.addMessage(session.id, { role: 'user', content: params.text })
 
-        const toolContext = { sessionId: params.sessionId, endpointKind: params.endpointKind }
-        const memoryContext = getMemoryContext(params.text)
+        const toolContext: ToolExecutionContext = {
+          sessionId: params.sessionId,
+          endpointKind: params.endpointKind,
+          searchPool: config.searchPool,
+          shellPool: config.shellPool,
+        }
+        const memoryContext = await getMemoryContext(params.text)
         const llmMessages = memoryContext
           ? [{ role: 'system', content: memoryContext } as ChatMessage, ...session.messages]
           : session.messages

@@ -18,10 +18,12 @@ import { createCliEndpoint } from './endpoints/cli.ts'
 import { createCronScheduler } from './triggers/cron.ts'
 import { createSkillRegistry } from './skills/index.ts'
 import { MEMORY_TYPES, createMemoryService } from './memory/index.ts'
+import { createMemoryWorkerClient, createSearchWorkerPool } from './workers/index.ts'
+import { createShellPool } from './shell/index.ts'
 import { createScheduleMessageTools } from './tools/schedule-message.ts'
 import { createMemoryTools } from './tools/memory-tools.ts'
 import type { ChatMessage } from './llm/index.ts'
-import type { MemoryType } from './memory/index.ts'
+import type { MemoryService, MemoryType } from './memory/index.ts'
 
 function parseTelegramAllowedUserIds(): number[] | undefined {
   const raw = process.env.TELEGRAM_ALLOWED_USER_IDS
@@ -131,7 +133,7 @@ program
       })
 
       if (memoryService) {
-        const memoryContext = memoryService.getAutoContext(prompt)
+        const memoryContext = await memoryService.getAutoContext(prompt)
         if (memoryContext) {
           messages.push({ role: 'system', content: memoryContext })
         }
@@ -254,7 +256,7 @@ memoryCommand
 
     const memoryService = createMemoryService()
     try {
-      const results = memoryService.search({
+      const results = await memoryService.search({
         query,
         type: options.type,
         limit,
@@ -290,7 +292,7 @@ memoryCommand
 
     const memoryService = createMemoryService()
     try {
-      const rows = memoryService.getRecent(limit, options.type)
+      const rows = await memoryService.getRecent(limit, options.type)
       if (rows.length === 0) {
         console.log('No memories stored.')
         return
@@ -308,7 +310,7 @@ memoryCommand
   .action(async () => {
     const memoryService = createMemoryService()
     try {
-      const stats = memoryService.getStats()
+      const stats = await memoryService.getStats()
       console.log(`DB: ${stats.dbPath}`)
       console.log(`Size: ${stats.dbSizeBytes} bytes`)
       console.log(`Total memories: ${stats.totalCount}`)
@@ -344,7 +346,7 @@ memoryCommand
 
     const memoryService = createMemoryService()
     try {
-      const deleted = memoryService.clear(options.type)
+      const deleted = await memoryService.clear(options.type)
       console.log(`Deleted ${deleted} memorie(s).`)
     } finally {
       memoryService.close()
@@ -357,7 +359,7 @@ memoryCommand
   .action(async () => {
     const memoryService = createMemoryService()
     try {
-      const rows = memoryService.exportAll()
+      const rows = await memoryService.exportAll()
       console.log(JSON.stringify(rows, null, 2))
     } finally {
       memoryService.close()
@@ -454,7 +456,7 @@ program
   .option('--no-auto-summary', 'Disable auto-summarization of conversations')
   .option('--memory-summary-window-minutes <minutes>', 'Rolling summary window in minutes')
   .action(async (options) => {
-    let memoryService: ReturnType<typeof createMemoryService> | undefined
+    let memoryService: MemoryService | undefined
     try {
       const model = options.model ?? process.env.DEFAULT_MODEL
 
@@ -483,7 +485,7 @@ program
       const loggerConfig = { level: options.logLevel, filePath: options.logFile }
       const telegramLogger = createLogger(loggerConfig)
       if (options.memory) {
-        memoryService = createMemoryService({ logger: telegramLogger })
+        memoryService = createMemoryWorkerClient({ logger: telegramLogger })
       }
       const memoryTools = memoryService ? createMemoryTools(memoryService) : []
       const summaryWindowMinutes = parseSummaryWindowMinutes(
@@ -506,6 +508,9 @@ program
         logger: telegramLogger,
       })
 
+      const searchPool = createSearchWorkerPool({ logger: telegramLogger })
+      const shellPool = createShellPool()
+
       const dispatcher = createDispatcher({
         client,
         sessionStore,
@@ -517,6 +522,8 @@ program
         memoryService,
         summaryWindowMs: summaryWindowMinutes ? summaryWindowMinutes * 60_000 : undefined,
         autoSummarize: resolveAutoSummarize(options.autoSummary),
+        searchPool,
+        shellPool,
       })
       dispatcherRef = dispatcher
       dispatcher.registerEndpoint(telegramEndpoint)
@@ -533,7 +540,9 @@ program
         stop()
         await dispatcher.waitForIdle(5000)
         await dispatcher.flushMemoryWrites(5000)
-        memoryService?.close()
+        await memoryService?.close()
+        await searchPool.shutdown()
+        shellPool.shutdown()
         process.exit(0)
       }
       process.once('SIGINT', () => { void shutdown() })
@@ -559,7 +568,7 @@ program
   .option('--no-auto-summary', 'Disable auto-summarization of conversations')
   .option('--memory-summary-window-minutes <minutes>', 'Rolling summary window in minutes')
   .action(async (options) => {
-    let memoryService: ReturnType<typeof createMemoryService> | undefined
+    let memoryService: MemoryService | undefined
     try {
       const model = options.model ?? process.env.DEFAULT_MODEL
 
@@ -573,7 +582,7 @@ program
       const loggerConfig = { level: options.logLevel, filePath: options.logFile }
       const logger = createLogger(loggerConfig)
       if (options.memory) {
-        memoryService = createMemoryService({ logger })
+        memoryService = createMemoryWorkerClient({ logger })
       }
       const memoryTools = memoryService ? createMemoryTools(memoryService) : []
       const summaryWindowMinutes = parseSummaryWindowMinutes(
@@ -596,6 +605,9 @@ program
         logger,
       })
 
+      const searchPool = createSearchWorkerPool({ logger })
+      const shellPool = createShellPool()
+
       const dispatcher = createDispatcher({
         client,
         sessionStore,
@@ -607,6 +619,8 @@ program
         memoryService,
         summaryWindowMs: summaryWindowMinutes ? summaryWindowMinutes * 60_000 : undefined,
         autoSummarize: resolveAutoSummarize(options.autoSummary),
+        searchPool,
+        shellPool,
       })
       dispatcherRef = dispatcher
 
@@ -662,7 +676,9 @@ program
         stopEndpoints()
         await dispatcher.waitForIdle(5000)
         await dispatcher.flushMemoryWrites(5000)
-        memoryService?.close()
+        await memoryService?.close()
+        await searchPool.shutdown()
+        shellPool.shutdown()
         process.exit(0)
       }
       process.once('SIGINT', () => { void shutdown() })

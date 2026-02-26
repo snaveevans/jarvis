@@ -54,7 +54,7 @@ export function createMemorySearchTool(memoryService: MemoryService): Tool {
       }
 
       try {
-        const results = memoryService.search({
+        const results = await memoryService.search({
           query,
           type: typeArg,
           limit: limitArg as number | undefined,

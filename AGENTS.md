@@ -14,7 +14,7 @@ src/
 ├── dispatcher.ts          # Central coordinator (sessions, tools, skills)
 ├── llm/
 │   ├── client.ts          # LLMClient - OpenAI SDK wrapper
-│   ├── chat-with-tools.ts # Tool execution orchestration (supports dynamic tools)
+│   ├── chat-with-tools.ts # Tool execution orchestration (parallel, supports dynamic tools)
 │   ├── types.ts           # TypeScript interfaces
 │   ├── errors.ts          # Custom error classes
 │   ├── index.ts           # Public exports
@@ -23,11 +23,11 @@ src/
 │   ├── types.ts           # Tool type definitions (+ ToolExecutionContext)
 │   ├── common.ts          # Shared safety and output helpers
 │   ├── read.ts            # Read tool (files/directories)
-│   ├── glob.ts            # File path pattern search
-│   ├── grep.ts            # Content regex search
+│   ├── glob.ts            # File path pattern search (delegates to search pool)
+│   ├── grep.ts            # Content regex search (delegates to search pool)
 │   ├── edit.ts            # Exact-match surgical edits
 │   ├── write.ts           # File creation/overwrite
-│   ├── shell.ts           # Guarded shell execution
+│   ├── shell.ts           # Guarded shell execution (delegates to shell pool)
 │   ├── web-fetch.ts       # Read-only web fetching
 │   ├── ask-user.ts        # User clarification interface
 │   ├── todo-list.ts       # In-session task tracking interface
@@ -35,6 +35,23 @@ src/
 │   ├── read-file.ts       # Backward-compatible read_file alias
 │   ├── schedule-message.ts # Generic scheduled-message tools factory (+ persistence)
 │   └── index.ts           # Base tool registry and execution
+├── memory/
+│   ├── db.ts              # SQLite schema/migrations
+│   ├── service.ts         # MemoryService (async interface, in-process implementation)
+│   ├── helpers.ts         # Pure functions shared between service and worker
+│   ├── types.ts           # Memory interfaces and enums
+│   └── index.ts           # Public exports
+├── workers/
+│   ├── memory-worker.ts       # SQLite worker thread entry point
+│   ├── memory-worker-client.ts # Main thread MemoryService via worker
+│   ├── search-worker.ts      # Glob/grep worker thread entry point
+│   ├── search-worker-pool.ts # Round-robin search worker pool (2 workers)
+│   ├── types.ts               # WorkerRequest/WorkerResponse interfaces
+│   └── index.ts               # Public exports
+├── shell/
+│   ├── pool.ts            # Concurrency-limited shell process pool (default 3)
+│   ├── types.ts           # ShellJob, ShellResult, ShellPool interfaces
+│   └── index.ts           # Public exports
 └── skills/
     ├── types.ts           # SkillFrontmatter interface
     ├── index.ts           # SkillRegistry: reads frontmatter, builds prompt block
@@ -246,8 +263,10 @@ There is currently no lint script in `package.json`.
 - `src/cli.ts` is the executable entrypoint (`jarvis`) and command router (Commander). It loads `.env`, parses CLI flags, and calls into the LLM layer. In `serve`/`telegram` modes it creates extra tools (reminder), registers skill metadata, and passes both to the dispatcher.
 - `src/dispatcher.ts` is the central coordinator: resolves sessions, builds system prompts (including skill prompt block), merges base + extra tools, threads `ToolExecutionContext` per request, and routes responses back through endpoints.
 - `src/llm/client.ts` wraps the OpenAI SDK against synthetic.new's OpenAI-compatible endpoint and maps SDK/API failures into local typed errors in `src/llm/errors.ts`.
-- `src/llm/chat-with-tools.ts` runs the tool-calling loop: send tool defs, execute returned tool calls, append tool outputs, and continue up to `MAX_TOOL_ITERATIONS` (5). Accepts optional `tools`, `executeTool`, and `toolContext` to support dynamic tool sets.
-- `src/tools/index.ts` is the base tool registry/dispatcher. `availableTools` drives `getToolDefinitions()` and `executeTool()`. Tools accept an optional `ToolExecutionContext` with `sessionId` and `endpointKind`.
+- `src/llm/chat-with-tools.ts` runs the tool-calling loop: send tool defs, execute returned tool calls in parallel (via `Promise.allSettled` with configurable `maxParallelTools`, default 5), append tool outputs, and continue up to `MAX_TOOL_ITERATIONS` (5). Accepts optional `tools`, `executeTool`, and `toolContext` to support dynamic tool sets.
+- `src/tools/index.ts` is the base tool registry/dispatcher. `availableTools` drives `getToolDefinitions()` and `executeTool()`. Tools accept an optional `ToolExecutionContext` with `sessionId`, `endpointKind`, `searchPool`, and `shellPool`.
+- `src/workers/` contains worker thread infrastructure. `memory-worker.ts` runs SQLite operations off the main thread; `memory-worker-client.ts` provides a `MemoryService`-compatible client. `search-worker.ts` + `search-worker-pool.ts` handle glob/grep via a round-robin pool of 2 workers. Workers communicate via `requestId`-based message passing.
+- `src/shell/pool.ts` provides `createShellPool()` — a concurrency-limited process pool (default 3 concurrent) that queues excess shell commands. Injected via `ToolExecutionContext.shellPool`.
 - `src/tools/schedule-message.ts` provides `createScheduleMessageTools(config)` — a factory that returns three tools (`schedule_message`, `list_scheduled_messages`, `cancel_scheduled_message`) with atomic JSON persistence to `data/scheduled-messages.json` and restart recovery. Requires `sendProactive`, `dataDir`, and `logger` at construction.
 - `src/skills/index.ts` is the skill registry. `createSkillRegistry()` reads markdown frontmatter and builds a compact system prompt block. Skills are pure markdown instruction files — they don't own tools.
 - `src/llm/types.ts` holds shared message/request/response and tool schemas used by CLI, client, and tool orchestration; `src/llm/index.ts` is the public export surface.

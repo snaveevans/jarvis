@@ -51,7 +51,7 @@ export function createMemoryStoreTool(memoryService: MemoryService): Tool {
       }
 
       try {
-        const result = memoryService.store({
+        const result = await memoryService.store({
           content,
           type: typeArg,
           tags: tags as string[] | undefined,

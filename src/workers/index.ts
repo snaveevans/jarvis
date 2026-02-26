@@ -1,0 +1,5 @@
+export { createMemoryWorkerClient } from './memory-worker-client.ts'
+export type { MemoryWorkerClientConfig } from './memory-worker-client.ts'
+export { createSearchWorkerPool } from './search-worker-pool.ts'
+export type { SearchWorkerPool, SearchWorkerPoolConfig } from './search-worker-pool.ts'
+export type { WorkerRequest, WorkerResponse } from './types.ts'

@@ -1,7 +1,7 @@
 import { exec as execCallback } from 'node:child_process'
 import { promisify } from 'node:util'
 
-import type { Tool, ToolResult } from './types.ts'
+import type { Tool, ToolResult, ToolExecutionContext } from './types.ts'
 import {
   capOutput,
   DEFAULT_TOOL_TIMEOUT_MS,
@@ -51,7 +51,7 @@ export const shellTool: Tool = {
     },
     required: ['command'],
   },
-  async execute(args: Record<string, unknown>): Promise<ToolResult> {
+  async execute(args: Record<string, unknown>, context?: ToolExecutionContext): Promise<ToolResult> {
     const command = args.command as string | undefined
     const workdir = args.workdir as string | undefined
     const timeout = parseTimeout(args.timeout)
@@ -63,6 +63,7 @@ export const shellTool: Tool = {
       }
     }
 
+    // Blocked command validation stays before pool dispatch
     for (const blockedPattern of BLOCKED_COMMAND_PATTERNS) {
       if (blockedPattern.test(command)) {
         return {
@@ -84,6 +85,36 @@ export const shellTool: Tool = {
       }
     }
 
+    // Delegate to shell pool if available
+    if (context?.shellPool) {
+      try {
+        const result = await context.shellPool.exec({
+          command,
+          cwd,
+          timeout,
+          maxBuffer: 5 * 1024 * 1024,
+        })
+
+        if (result.exitCode !== 0) {
+          const output = [result.stdout, result.stderr].filter(Boolean).join('\n')
+          return {
+            content: capOutput(output),
+            error: 'Shell command failed',
+          }
+        }
+
+        return {
+          content: capOutput([result.stdout, result.stderr].filter(Boolean).join('\n').trim()),
+        }
+      } catch (error) {
+        return {
+          content: '',
+          error: `Shell command failed: ${error instanceof Error ? error.message : String(error)}`,
+        }
+      }
+    }
+
+    // In-process fallback
     try {
       const { stdout, stderr } = await exec(command, {
         cwd,

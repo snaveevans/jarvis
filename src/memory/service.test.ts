@@ -17,10 +17,10 @@ describe('MemoryService', () => {
     await rm(memoryDir, { recursive: true, force: true })
   })
 
-  test('stores and searches memories', () => {
+  test('stores and searches memories', async () => {
     const service = createMemoryService({ memoryDir })
     try {
-      const storeResult = service.store({
+      const storeResult = await service.store({
         content: 'I prefer functional patterns over classes.',
         type: 'preference',
         tags: ['typescript'],
@@ -29,7 +29,7 @@ describe('MemoryService', () => {
       assert.equal(storeResult.deduplicated, false)
       assert.equal(storeResult.memory.type, 'preference')
 
-      const searchResults = service.search({
+      const searchResults = await service.search({
         query: 'functional',
         type: 'preference',
       })
@@ -41,14 +41,14 @@ describe('MemoryService', () => {
     }
   })
 
-  test('deduplicates near-exact content', () => {
+  test('deduplicates near-exact content', async () => {
     const service = createMemoryService({ memoryDir })
     try {
-      const first = service.store({
+      const first = await service.store({
         content: 'Auth uses JWT access tokens.',
         type: 'fact',
       })
-      const second = service.store({
+      const second = await service.store({
         content: '  auth uses   jwt access tokens. ',
         type: 'fact',
       })
@@ -60,19 +60,19 @@ describe('MemoryService', () => {
     }
   })
 
-  test('builds bounded auto-context block', () => {
+  test('builds bounded auto-context block', async () => {
     const service = createMemoryService({ memoryDir })
     try {
-      service.store({
+      await service.store({
         content: 'Project uses TypeScript strict mode.',
         type: 'fact',
       })
-      service.store({
+      await service.store({
         content: 'Use concise commit messages.',
         type: 'preference',
       })
 
-      const context = service.getAutoContext('TypeScript project')
+      const context = await service.getAutoContext('TypeScript project')
       assert.ok(context)
       assert.match(context!, /Relevant context from memory:/)
       assert.match(context!, /TypeScript strict mode/)
@@ -109,7 +109,7 @@ describe('MemoryService', () => {
         ],
       })
 
-      const summaries = service.getRecent(10, 'conversation_summary')
+      const summaries = await service.getRecent(10, 'conversation_summary')
       assert.equal(summaries.length, 1)
       assert.match(summaries[0].content, /auth logic modular/)
     } finally {

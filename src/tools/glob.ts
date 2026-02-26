@@ -2,7 +2,7 @@ import path from 'node:path'
 import { stat } from 'node:fs/promises'
 import fg from 'fast-glob'
 
-import type { Tool, ToolResult } from './types.ts'
+import type { Tool, ToolResult, ToolExecutionContext } from './types.ts'
 import { capOutput, getWorkspaceRoot, resolveWorkspacePath } from './common.ts'
 
 const MAX_RESULTS = 1_000
@@ -24,7 +24,7 @@ export const globTool: Tool = {
     },
     required: ['pattern'],
   },
-  async execute(args: Record<string, unknown>): Promise<ToolResult> {
+  async execute(args: Record<string, unknown>, context?: ToolExecutionContext): Promise<ToolResult> {
     const pattern = args.pattern as string | undefined
     const rootPath = args.path as string | undefined
 
@@ -47,6 +47,24 @@ export const globTool: Tool = {
       }
     }
 
+    // Delegate to search pool if available
+    if (context?.searchPool) {
+      try {
+        const content = await context.searchPool.glob({
+          pattern,
+          searchRoot,
+          workspaceRoot: getWorkspaceRoot(),
+        })
+        return { content }
+      } catch (error) {
+        return {
+          content: '',
+          error: `Glob failed: ${error instanceof Error ? error.message : String(error)}`,
+        }
+      }
+    }
+
+    // In-process fallback
     try {
       const matches = await fg(pattern, {
         cwd: searchRoot,

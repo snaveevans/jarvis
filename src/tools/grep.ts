@@ -2,7 +2,7 @@ import path from 'node:path'
 import { readFile } from 'node:fs/promises'
 import fg from 'fast-glob'
 
-import type { Tool, ToolResult } from './types.ts'
+import type { Tool, ToolResult, ToolExecutionContext } from './types.ts'
 import { capOutput, getWorkspaceRoot, resolveWorkspacePath } from './common.ts'
 
 const MAX_MATCHES = 1_000
@@ -28,7 +28,7 @@ export const grepTool: Tool = {
     },
     required: ['pattern'],
   },
-  async execute(args: Record<string, unknown>): Promise<ToolResult> {
+  async execute(args: Record<string, unknown>, context?: ToolExecutionContext): Promise<ToolResult> {
     const pattern = args.pattern as string | undefined
     const include = (args.include as string | undefined) ?? '**/*'
     const rootPath = args.path as string | undefined
@@ -40,9 +40,9 @@ export const grepTool: Tool = {
       }
     }
 
-    let regex: RegExp
+    // Validate regex before delegating
     try {
-      regex = new RegExp(pattern)
+      new RegExp(pattern)
     } catch (error) {
       return {
         content: '',
@@ -62,7 +62,27 @@ export const grepTool: Tool = {
       }
     }
 
+    // Delegate to search pool if available
+    if (context?.searchPool) {
+      try {
+        const content = await context.searchPool.grep({
+          pattern,
+          include,
+          searchRoot,
+          workspaceRoot: getWorkspaceRoot(),
+        })
+        return { content }
+      } catch (error) {
+        return {
+          content: '',
+          error: `Grep failed: ${error instanceof Error ? error.message : String(error)}`,
+        }
+      }
+    }
+
+    // In-process fallback
     try {
+      const regex = new RegExp(pattern)
       const files = await fg(include, {
         cwd: searchRoot,
         absolute: true,

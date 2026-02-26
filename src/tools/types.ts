@@ -6,6 +6,13 @@ export interface ToolResult {
 export interface ToolExecutionContext {
   sessionId: string
   endpointKind: string
+  searchPool?: {
+    glob(params: { pattern: string, searchRoot: string, workspaceRoot: string }): Promise<string>
+    grep(params: { pattern: string, include?: string, searchRoot: string, workspaceRoot: string }): Promise<string>
+  }
+  shellPool?: {
+    exec(job: { command: string, cwd: string, timeout: number, maxBuffer: number }): Promise<{ stdout: string, stderr: string, exitCode: number, durationMs: number }>
+  }
 }
 
 export interface Tool {

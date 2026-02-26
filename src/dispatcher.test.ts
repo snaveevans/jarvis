@@ -47,6 +47,36 @@ function makeMockClient(content: string = 'Hello back!') {
   }
 }
 
+function makeMockMemoryService(overrides: Partial<MemoryService> = {}): MemoryService {
+  return {
+    dbPath: '/tmp/memory.db',
+    search: async () => [],
+    getRecent: async () => [],
+    store: async () => ({ deduplicated: false, memory: {
+      id: 1,
+      content: '',
+      type: 'fact' as const,
+      tags: [],
+      createdAt: new Date().toISOString(),
+      tokenCount: 1,
+    } }),
+    deleteById: async () => true,
+    clear: async () => 0,
+    exportAll: async () => [],
+    getStats: async () => ({
+      dbPath: '/tmp/memory.db',
+      dbSizeBytes: 0,
+      totalCount: 0,
+      totalTokenCount: 0,
+      byType: { preference: 0, fact: 0, conversation_summary: 0 },
+    }),
+    getAutoContext: async () => undefined,
+    summarizeAndStore: async () => 'stored',
+    close: () => {},
+    ...overrides,
+  }
+}
+
 describe('buildSystemPrompt', () => {
   test('includes endpoint profile details', () => {
     const profile = makeProfile({
@@ -297,36 +327,15 @@ describe('createDispatcher', () => {
     let summaryCompleted = false
 
     const client = makeMockClient('Needs summary')
-    const memoryService: MemoryService = {
-      dbPath: '/tmp/memory.db',
-      search: () => [],
-      getRecent: () => [],
-      store: () => ({ deduplicated: false, memory: {
-        id: 1,
-        content: '',
-        type: 'fact',
-        tags: [],
-        createdAt: new Date().toISOString(),
-        tokenCount: 1,
-      } }),
-      clear: () => 0,
-      exportAll: () => [],
-      getStats: () => ({
-        dbPath: '/tmp/memory.db',
-        dbSizeBytes: 0,
-        totalCount: 0,
-        totalTokenCount: 0,
-        byType: { preference: 0, fact: 0, conversation_summary: 0 },
-      }),
-      getAutoContext: () => undefined,
+    const memoryService = makeMockMemoryService({
       summarizeAndStore: async () => {
         await new Promise<void>((resolve) => {
           releaseSummary = resolve
         })
         summaryCompleted = true
+        return 'stored'
       },
-      close: () => {},
-    }
+    })
 
     const dispatcher = createDispatcher({
       client,
@@ -414,31 +423,10 @@ describe('createDispatcher', () => {
       },
     }
 
-    const memoryService: MemoryService = {
-      dbPath: '/tmp/memory.db',
-      search: () => [],
-      getRecent: () => [],
-      store: () => ({ deduplicated: false, memory: {
-        id: 1,
-        content: '',
-        type: 'fact',
-        tags: [],
-        createdAt: new Date().toISOString(),
-        tokenCount: 1,
-      } }),
-      clear: () => 0,
-      exportAll: () => [],
-      getStats: () => ({
-        dbPath: '/tmp/memory.db',
-        dbSizeBytes: 0,
-        totalCount: 0,
-        totalTokenCount: 0,
-        byType: { preference: 0, fact: 0, conversation_summary: 0 },
-      }),
-      getAutoContext: () => 'Relevant context from memory:\n- [fact] Existing project fact',
-      summarizeAndStore: async () => { summarizeCalled = true },
-      close: () => {},
-    }
+    const memoryService = makeMockMemoryService({
+      getAutoContext: async () => 'Relevant context from memory:\n- [fact] Existing project fact',
+      summarizeAndStore: async () => { summarizeCalled = true; return 'stored' },
+    })
 
     const dispatcher = createDispatcher({
       client,
@@ -468,34 +456,12 @@ describe('createDispatcher', () => {
     const client = makeMockClient('ok')
     const summarizedMessageCounts: number[] = []
 
-    const memoryService: MemoryService = {
-      dbPath: '/tmp/memory.db',
-      search: () => [],
-      getRecent: () => [],
-      store: () => ({ deduplicated: false, memory: {
-        id: 1,
-        content: '',
-        type: 'fact',
-        tags: [],
-        createdAt: new Date().toISOString(),
-        tokenCount: 1,
-      } }),
-      clear: () => 0,
-      exportAll: () => [],
-      getStats: () => ({
-        dbPath: '/tmp/memory.db',
-        dbSizeBytes: 0,
-        totalCount: 0,
-        totalTokenCount: 0,
-        byType: { preference: 0, fact: 0, conversation_summary: 0 },
-      }),
-      getAutoContext: () => undefined,
+    const memoryService = makeMockMemoryService({
       summarizeAndStore: async (input) => {
         summarizedMessageCounts.push(input.messages.length)
         return 'stored'
       },
-      close: () => {},
-    }
+    })
 
     const dispatcher = createDispatcher({
       client,

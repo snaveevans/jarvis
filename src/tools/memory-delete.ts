@@ -22,7 +22,7 @@ export function createMemoryDeleteTool(memoryService: MemoryService): Tool {
       }
 
       try {
-        const deleted = memoryService.deleteById(id)
+        const deleted = await memoryService.deleteById(id)
         if (!deleted) {
           return { content: '', error: `No memory found with ID ${id}` }
         }

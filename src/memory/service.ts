@@ -5,6 +5,22 @@ import type { ChatMessage } from '../llm/types.ts'
 
 import { createMemoryDb } from './db.ts'
 import { MEMORY_TYPES } from './types.ts'
+import {
+  estimateTokenCount,
+  normalizeContent,
+  isMemoryType,
+  toMemory,
+  toSearchResult,
+  clampLimit,
+  summarizeTypeLabel,
+  buildFtsQuery,
+  shouldSummarize,
+  AUTO_CONTEXT_MAX_RESULTS,
+  AUTO_CONTEXT_MAX_TOKENS,
+  SEARCH_DEFAULT_LIMIT,
+  RECENT_DEFAULT_LIMIT,
+} from './helpers.ts'
+import type { MemoryRow } from './helpers.ts'
 import type {
   Memory,
   MemorySearchInput,
@@ -15,28 +31,10 @@ import type {
   MemoryType,
 } from './types.ts'
 
-const AUTO_CONTEXT_MAX_RESULTS = 5
-const AUTO_CONTEXT_MAX_TOKENS = 500
-const SEARCH_MAX_LIMIT = 20
-const SEARCH_DEFAULT_LIMIT = 5
-const RECENT_DEFAULT_LIMIT = 10
-const MIN_SUMMARY_TOKENS = 200
-
 type MemoryLogger = {
   info?: (meta: unknown, message?: string) => void
   warn?: (meta: unknown, message?: string) => void
   error?: (meta: unknown, message?: string) => void
-}
-
-interface MemoryRow {
-  id: number
-  content: string
-  type: string
-  tags: string
-  source: string | null
-  created_at: string
-  token_count: number
-  rank?: number
 }
 
 export interface SummarizeAndStoreInput {
@@ -55,16 +53,16 @@ export interface MemoryServiceConfig {
 
 export interface MemoryService {
   readonly dbPath: string
-  search(input: MemorySearchInput): MemorySearchResult[]
-  getRecent(limit?: number, type?: MemoryType): Memory[]
-  store(input: MemoryStoreInput): MemoryStoreResult
-  deleteById(id: number): boolean
-  clear(type?: MemoryType): number
-  exportAll(): Memory[]
-  getStats(): MemoryStats
-  getAutoContext(query: string): string | undefined
+  search(input: MemorySearchInput): Promise<MemorySearchResult[]>
+  getRecent(limit?: number, type?: MemoryType): Promise<Memory[]>
+  store(input: MemoryStoreInput): Promise<MemoryStoreResult>
+  deleteById(id: number): Promise<boolean>
+  clear(type?: MemoryType): Promise<number>
+  exportAll(): Promise<Memory[]>
+  getStats(): Promise<MemoryStats>
+  getAutoContext(query: string): Promise<string | undefined>
   summarizeAndStore(input: SummarizeAndStoreInput): Promise<SummarizeOutcome>
-  close(): void
+  close(): void | Promise<void>
 }
 
 export type SummarizeOutcome =
@@ -73,90 +71,6 @@ export type SummarizeOutcome =
   | 'stored'
   | 'deduplicated'
   | 'failed'
-
-function estimateTokenCount(text: string): number {
-  return Math.max(1, Math.ceil(text.length / 4))
-}
-
-function normalizeContent(content: string): string {
-  return content.trim().toLowerCase().replace(/\s+/g, ' ')
-}
-
-function isMemoryType(value: unknown): value is MemoryType {
-  return MEMORY_TYPES.includes(value as MemoryType)
-}
-
-function parseTags(raw: string): string[] {
-  try {
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) {
-      return []
-    }
-    return parsed.filter((tag): tag is string => typeof tag === 'string')
-  } catch {
-    return []
-  }
-}
-
-function toMemory(row: MemoryRow): Memory {
-  return {
-    id: row.id,
-    content: row.content,
-    type: row.type as MemoryType,
-    tags: parseTags(row.tags),
-    source: row.source ?? undefined,
-    createdAt: row.created_at,
-    tokenCount: row.token_count,
-  }
-}
-
-function toSearchResult(row: MemoryRow): MemorySearchResult {
-  return {
-    ...toMemory(row),
-    rank: row.rank ?? 0,
-  }
-}
-
-function clampLimit(limit: number | undefined, defaultValue: number): number {
-  if (limit === undefined) {
-    return defaultValue
-  }
-  if (!Number.isFinite(limit) || limit <= 0) {
-    throw new Error('limit must be a positive number')
-  }
-  return Math.min(Math.floor(limit), SEARCH_MAX_LIMIT)
-}
-
-function summarizeTypeLabel(type: MemoryType): string {
-  if (type === 'conversation_summary') {
-    return 'summary'
-  }
-  return type
-}
-
-function buildFtsQuery(query: string): string {
-  const terms = query
-    .trim()
-    .split(/\s+/)
-    .map(term => term.trim())
-    .filter(Boolean)
-
-  return terms
-    .map(term => `"${term.replaceAll('"', '""')}"`)
-    .join(' AND ')
-}
-
-function shouldSummarize(messages: ChatMessage[], hadToolCalls: boolean): boolean {
-  if (hadToolCalls) {
-    return true
-  }
-
-  const totalTokens = messages
-    .filter(message => message.role !== 'system')
-    .reduce((sum, message) => sum + estimateTokenCount(message.content), 0)
-
-  return totalTokens >= MIN_SUMMARY_TOKENS
-}
 
 export function createMemoryService(config: MemoryServiceConfig = {}): MemoryService {
   const logger = config.logger
@@ -213,7 +127,7 @@ export function createMemoryService(config: MemoryServiceConfig = {}): MemorySer
     return validated
   }
 
-  function getRecent(limit: number = RECENT_DEFAULT_LIMIT, type?: MemoryType): Memory[] {
+  function getRecentSync(limit: number = RECENT_DEFAULT_LIMIT, type?: MemoryType): Memory[] {
     const boundedLimit = clampLimit(limit, RECENT_DEFAULT_LIMIT)
 
     if (type) {
@@ -237,12 +151,12 @@ export function createMemoryService(config: MemoryServiceConfig = {}): MemorySer
     return rows.map(toMemory)
   }
 
-  function search(input: MemorySearchInput): MemorySearchResult[] {
+  function searchSync(input: MemorySearchInput): MemorySearchResult[] {
     const query = input.query.trim()
     const limit = clampLimit(input.limit, SEARCH_DEFAULT_LIMIT)
 
     if (!query) {
-      return getRecent(limit, input.type).map(memory => ({ ...memory, rank: 0 }))
+      return getRecentSync(limit, input.type).map(memory => ({ ...memory, rank: 0 }))
     }
     const ftsQuery = buildFtsQuery(query)
 
@@ -275,7 +189,7 @@ export function createMemoryService(config: MemoryServiceConfig = {}): MemorySer
     return rows.map(toSearchResult)
   }
 
-  function store(input: MemoryStoreInput): MemoryStoreResult {
+  function storeSync(input: MemoryStoreInput): MemoryStoreResult {
     const content = input.content.trim()
     if (!content) {
       throw new Error('content is required and must be non-empty')
@@ -307,7 +221,7 @@ export function createMemoryService(config: MemoryServiceConfig = {}): MemorySer
     return { memory: toMemory(inserted), deduplicated: false }
   }
 
-  function clear(type?: MemoryType): number {
+  function clearSync(type?: MemoryType): number {
     if (type) {
       const validatedType = validateType(type)
       const result = db.prepare('DELETE FROM memories WHERE type = ?').run(validatedType)
@@ -318,12 +232,12 @@ export function createMemoryService(config: MemoryServiceConfig = {}): MemorySer
     return result.changes
   }
 
-  function deleteById(id: number): boolean {
+  function deleteByIdSync(id: number): boolean {
     const result = db.prepare('DELETE FROM memories WHERE id = ?').run(id)
     return result.changes > 0
   }
 
-  function exportAll(): Memory[] {
+  function exportAllSync(): Memory[] {
     const rows = db.prepare(`
       SELECT id, content, type, tags, source, created_at, token_count
       FROM memories
@@ -332,7 +246,7 @@ export function createMemoryService(config: MemoryServiceConfig = {}): MemorySer
     return rows.map(toMemory)
   }
 
-  function getStats(): MemoryStats {
+  function getStatsSync(): MemoryStats {
     const counts = db.prepare(`
       SELECT type, COUNT(*) AS count, COALESCE(SUM(token_count), 0) AS token_sum
       FROM memories
@@ -371,8 +285,8 @@ export function createMemoryService(config: MemoryServiceConfig = {}): MemorySer
     }
   }
 
-  function getAutoContext(query: string): string | undefined {
-    const results = search({
+  function getAutoContextSync(query: string): string | undefined {
+    const results = searchSync({
       query,
       limit: AUTO_CONTEXT_MAX_RESULTS,
     })
@@ -400,7 +314,7 @@ export function createMemoryService(config: MemoryServiceConfig = {}): MemorySer
     return `Relevant context from memory:\n${lines.join('\n')}`
   }
 
-  async function summarizeAndStore(input: SummarizeAndStoreInput): Promise<SummarizeOutcome> {
+  async function summarizeAndStoreImpl(input: SummarizeAndStoreInput): Promise<SummarizeOutcome> {
     const hadToolCalls = input.hadToolCalls ?? false
     if (!input.force && !shouldSummarize(input.messages, hadToolCalls)) {
       return 'skipped_trivial'
@@ -480,7 +394,7 @@ export function createMemoryService(config: MemoryServiceConfig = {}): MemorySer
       logger?.info?.({}, 'Using local fallback summary (LLM returned empty)')
     }
 
-    const storeResult = store({
+    const storeResult = storeSync({
       content: summary,
       type: 'conversation_summary',
       source: input.source ?? `chat ${new Date().toISOString()}`,
@@ -492,18 +406,18 @@ export function createMemoryService(config: MemoryServiceConfig = {}): MemorySer
 
   return {
     dbPath,
-    search,
-    getRecent,
-    store,
-    deleteById,
-    clear,
-    exportAll,
-    getStats,
-    getAutoContext,
+    search: (input) => Promise.resolve(searchSync(input)),
+    getRecent: (limit, type) => Promise.resolve(getRecentSync(limit, type)),
+    store: (input) => Promise.resolve(storeSync(input)),
+    deleteById: (id) => Promise.resolve(deleteByIdSync(id)),
+    clear: (type) => Promise.resolve(clearSync(type)),
+    exportAll: () => Promise.resolve(exportAllSync()),
+    getStats: () => Promise.resolve(getStatsSync()),
+    getAutoContext: (query) => Promise.resolve(getAutoContextSync(query)),
     async summarizeAndStore(input: SummarizeAndStoreInput): Promise<SummarizeOutcome> {
       const startedAt = Date.now()
       try {
-        const outcome = await summarizeAndStore(input)
+        const outcome = await summarizeAndStoreImpl(input)
         logger?.info?.(
           {
             source: input.source,
