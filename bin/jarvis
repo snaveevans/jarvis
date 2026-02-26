@@ -1,10 +1,14 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # Resolve the actual script location (follows symlinks)
 SCRIPT="$0"
 while [ -L "$SCRIPT" ]; do
   DIR="$(cd -P "$(dirname "$SCRIPT")" && pwd)"
   SCRIPT="$(readlink "$SCRIPT")"
-  [[ $SCRIPT != /* ]] && SCRIPT="$DIR/$SCRIPT"
+  # Make absolute path if relative
+  case "$SCRIPT" in
+    /*) ;;
+    *) SCRIPT="$DIR/$SCRIPT" ;;
+  esac
 done
 DIR="$(cd -P "$(dirname "$SCRIPT")" && pwd)"
 exec node --experimental-strip-types "$DIR/../src/cli.ts" "$@"
