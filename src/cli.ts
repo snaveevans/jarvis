@@ -355,6 +355,37 @@ program
     }
   })
 
+program
+  .command('config')
+  .description('Show current configuration (API keys redacted)')
+  .action(async () => {
+    try {
+      const config = await getConfig()
+      const safeConfig = {
+        llm: {
+          provider: config.llm.provider,
+          baseUrl: config.llm.baseUrl,
+          defaultModel: config.llm.defaultModel,
+          apiKey: config.llm.apiKey ? `${config.llm.apiKey.slice(0, 8)}...` : '(not set)',
+        },
+        memory: {
+          enabled: config.memory.enabled,
+          dir: config.memory.dir,
+        },
+        search: {
+          provider: config.search.provider,
+        },
+      }
+      console.log(JSON.stringify(safeConfig, null, 2))
+    } catch (error) {
+      if (error instanceof Error) {
+        console.error('Error:', error.message)
+        process.exit(1)
+      }
+      throw error
+    }
+  })
+
 const memoryCommand = program
   .command('memory')
   .description('Inspect and manage persistent Jarvis memory')
