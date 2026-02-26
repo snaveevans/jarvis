@@ -1,5 +1,7 @@
 export { LLMClient } from './client.ts'
 export type { LLMClientConfig } from './client.ts'
+export { LLM_PROVIDERS } from './provider.ts'
+export type { LLMProvider } from './provider.ts'
 export { chatWithTools } from './chat-with-tools.ts'
 export type {
   ChatWithToolsClient,

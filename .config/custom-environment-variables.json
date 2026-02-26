@@ -1,7 +1,26 @@
 {
   "llm": {
-    "apiKey": "SYNTHETIC_API_KEY",
-    "defaultModel": "DEFAULT_MODEL"
+    "provider": "LLM_PROVIDER",
+    "apiKey": "LLM_API_KEY",
+    "baseUrl": "LLM_BASE_URL",
+    "defaultModel": "DEFAULT_MODEL",
+    "providers": {
+      "synthetic": {
+        "apiKey": "SYNTHETIC_API_KEY",
+        "baseUrl": "SYNTHETIC_BASE_URL",
+        "defaultModel": "SYNTHETIC_DEFAULT_MODEL"
+      },
+      "minimax": {
+        "apiKey": "MINIMAX_API_KEY",
+        "baseUrl": "MINIMAX_BASE_URL",
+        "defaultModel": "MINIMAX_DEFAULT_MODEL"
+      },
+      "openaiCompatible": {
+        "apiKey": "OPENAI_COMPATIBLE_API_KEY",
+        "baseUrl": "OPENAI_COMPATIBLE_BASE_URL",
+        "defaultModel": "OPENAI_COMPATIBLE_DEFAULT_MODEL"
+      }
+    }
   },
   "telegram": {
     "botToken": "TELEGRAM_BOT_TOKEN",

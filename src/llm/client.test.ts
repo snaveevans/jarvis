@@ -43,6 +43,25 @@ describe('LLMClient', () => {
     })
     assert.ok(client)
   })
+
+  test('strips minimax think tags for user-visible output', () => {
+    const client = new LLMClient({
+      apiKey: 'test',
+      baseUrl: 'https://api.minimax.io/v1',
+      provider: 'minimax',
+    })
+    const visible = client.toUserVisibleContent('<think>internal</think>Visible answer')
+    assert.strictEqual(visible, 'Visible answer')
+  })
+
+  test('does not strip content for synthetic provider', () => {
+    const client = new LLMClient({
+      apiKey: 'test',
+      provider: 'synthetic',
+    })
+    const visible = client.toUserVisibleContent('<think>internal</think>Visible answer')
+    assert.strictEqual(visible, '<think>internal</think>Visible answer')
+  })
 })
 
 describe('LLM Errors', () => {

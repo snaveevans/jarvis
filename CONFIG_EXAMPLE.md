@@ -35,8 +35,14 @@ This is a thin slice demonstrating the new configuration system using **c12** + 
 
 2. **Environment Variable Mapping**:
    ```
-   SYNTHETIC_API_KEY → config.llm.apiKey
-   DEFAULT_MODEL → config.llm.defaultModel
+    LLM_PROVIDER → config.llm.provider
+    SYNTHETIC_API_KEY → config.llm.providers.synthetic.apiKey
+    SYNTHETIC_DEFAULT_MODEL → config.llm.providers.synthetic.defaultModel
+    MINIMAX_API_KEY → config.llm.providers.minimax.apiKey
+    MINIMAX_DEFAULT_MODEL → config.llm.providers.minimax.defaultModel
+    OPENAI_API_KEY → config.llm.providers.minimax.apiKey (alias)
+    OPENAI_BASE_URL → config.llm.providers.minimax.baseUrl (alias)
+    DEFAULT_MODEL → config.llm.defaultModel (global override)
    TELEGRAM_BOT_TOKEN → config.telegram.botToken
    TELEGRAM_ALLOWED_USER_IDS → config.telegram.allowedUserIds
    JARVIS_MEMORY_DIR → config.memory.dir

@@ -9,9 +9,25 @@ The main configuration file is located at `.config/default.json`:
 ```json
 {
   "llm": {
-    "apiKey": "your-api-key-here",
+    "provider": "synthetic",
     "defaultModel": "hf:nvidia/Kimi-K2.5-NVFP4",
-    "baseUrl": "https://api.synthetic.new/v1"
+    "providers": {
+      "synthetic": {
+        "apiKey": "your-synthetic-api-key-here",
+        "baseUrl": "https://api.synthetic.new/openai/v1",
+        "defaultModel": "hf:nvidia/Kimi-K2.5-NVFP4"
+      },
+      "minimax": {
+        "apiKey": "your-minimax-api-key-here",
+        "baseUrl": "https://api.minimax.io/v1",
+        "defaultModel": "MiniMax-M2.5"
+      },
+      "openaiCompatible": {
+        "apiKey": "",
+        "baseUrl": "",
+        "defaultModel": ""
+      }
+    }
   },
   "telegram": {
     "botToken": "your-bot-token-here",
@@ -43,8 +59,21 @@ Environment variables are automatically mapped to configuration values. Create `
 
 | Environment Variable | Config Path |
 |---------------------|-------------|
-| `SYNTHETIC_API_KEY` | `llm.apiKey` |
-| `DEFAULT_MODEL` | `llm.defaultModel` |
+| `LLM_PROVIDER` | `llm.provider` |
+| `SYNTHETIC_API_KEY` | `llm.providers.synthetic.apiKey` |
+| `SYNTHETIC_BASE_URL` | `llm.providers.synthetic.baseUrl` |
+| `SYNTHETIC_DEFAULT_MODEL` | `llm.providers.synthetic.defaultModel` |
+| `MINIMAX_API_KEY` | `llm.providers.minimax.apiKey` |
+| `MINIMAX_BASE_URL` | `llm.providers.minimax.baseUrl` |
+| `MINIMAX_DEFAULT_MODEL` | `llm.providers.minimax.defaultModel` |
+| `OPENAI_API_KEY` | `llm.providers.minimax.apiKey` (alias) |
+| `OPENAI_BASE_URL` | `llm.providers.minimax.baseUrl` (alias) |
+| `OPENAI_COMPATIBLE_API_KEY` | `llm.providers.openaiCompatible.apiKey` |
+| `OPENAI_COMPATIBLE_BASE_URL` | `llm.providers.openaiCompatible.baseUrl` |
+| `OPENAI_COMPATIBLE_DEFAULT_MODEL` | `llm.providers.openaiCompatible.defaultModel` |
+| `LLM_API_KEY` | `llm.apiKey` (override active provider key) |
+| `LLM_BASE_URL` | `llm.baseUrl` (override active provider URL) |
+| `DEFAULT_MODEL` | `llm.defaultModel` (override active provider model) |
 | `TELEGRAM_BOT_TOKEN` | `telegram.botToken` |
 | `TELEGRAM_ALLOWED_USER_IDS` | `telegram.allowedUserIds` |
 | `JARVIS_MEMORY_DIR` | `memory.dir` |
@@ -68,8 +97,9 @@ If you were previously using `.env` file, simply ensure the same variables are s
 
 Example `.env`:
 ```bash
-SYNTHETIC_API_KEY=your-key
-DEFAULT_MODEL=hf:nvidia/Kimi-K2.5-NVFP4
+LLM_PROVIDER=minimax
+MINIMAX_API_KEY=your-key
+MINIMAX_DEFAULT_MODEL=MiniMax-M2.5
 TELEGRAM_BOT_TOKEN=your-token
 JARVIS_AUTO_SUMMARIZE=false
 ```

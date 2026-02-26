@@ -115,7 +115,10 @@ program
       }
 
       const client = new LLMClient({
+        apiKey: config.llm.apiKey,
+        baseUrl: config.llm.baseUrl,
         defaultModel: model,
+        provider: config.llm.provider,
       })
 
       if (options.memory) {
@@ -148,6 +151,7 @@ program
       if (options.stream) {
         process.stdout.write('Thinking...\n\n')
         let streamedContent = ''
+        let displayedContent = ''
 
         for await (const chunk of client.streamChat(messages, {
           temperature: parseFloat(options.temperature),
@@ -156,7 +160,12 @@ program
           const content = chunk.choices[0]?.delta?.content
           if (content) {
             streamedContent += content
-            process.stdout.write(content)
+            const nextVisible = client.toUserVisibleContent(streamedContent)
+            const delta = nextVisible.slice(displayedContent.length)
+            if (delta) {
+              process.stdout.write(delta)
+              displayedContent = nextVisible
+            }
           }
         }
         process.stdout.write('\n')
@@ -178,7 +187,7 @@ program
         })
 
         const content = response.choices[0]?.message?.content ?? ''
-        console.log(content)
+        console.log(client.toUserVisibleContent(content))
 
         if (memoryService && content.trim()) {
           summaryMessages.push({ role: 'assistant', content })
@@ -214,7 +223,12 @@ program
   .option('-j, --json', 'Output as JSON')
   .action(async (options) => {
     try {
-      const client = new LLMClient()
+      const config = await getConfig()
+      const client = new LLMClient({
+        apiKey: config.llm.apiKey,
+        baseUrl: config.llm.baseUrl,
+        provider: config.llm.provider,
+      })
       const models = await client.listModels()
 
       if (options.json) {
@@ -396,7 +410,12 @@ program
         process.exit(1)
       }
 
-      const client = new LLMClient({ apiKey: config.llm.apiKey, defaultModel: model, baseUrl: config.llm.baseUrl })
+      const client = new LLMClient({
+        apiKey: config.llm.apiKey,
+        defaultModel: model,
+        baseUrl: config.llm.baseUrl,
+        provider: config.llm.provider,
+      })
       const sessionStore = createInMemorySessionStore()
       const cliEndpoint = createCliEndpoint()
       const loggerConfig = { level: options.logLevel ?? config.logging.level, filePath: options.logFile ?? config.logging.file }
@@ -414,6 +433,7 @@ program
         client,
         sessionStore,
         model,
+        providerName: config.llm.provider,
         baseSystemPrompt: options.system,
         logger: loggerConfig,
         extraTools: memoryTools,
@@ -479,7 +499,12 @@ program
       }
 
       const allowedUserIds = parseTelegramAllowedUserIds(config.telegram.allowedUserIds)
-      const client = new LLMClient({ apiKey: config.llm.apiKey, defaultModel: model, baseUrl: config.llm.baseUrl })
+      const client = new LLMClient({
+        apiKey: config.llm.apiKey,
+        defaultModel: model,
+        baseUrl: config.llm.baseUrl,
+        provider: config.llm.provider,
+      })
       const sessionStore = createInMemorySessionStore()
       const telegramEndpoint = createTelegramEndpoint({
         token,
@@ -522,6 +547,7 @@ program
         client,
         sessionStore,
         model,
+        providerName: config.llm.provider,
         baseSystemPrompt: options.systemPrompt,
         logger: loggerConfig,
         extraTools: [...scheduleHandle.tools, ...memoryTools],
@@ -586,7 +612,12 @@ program
         process.exit(1)
       }
 
-      const client = new LLMClient({ apiKey: config.llm.apiKey, defaultModel: model, baseUrl: config.llm.baseUrl })
+      const client = new LLMClient({
+        apiKey: config.llm.apiKey,
+        defaultModel: model,
+        baseUrl: config.llm.baseUrl,
+        provider: config.llm.provider,
+      })
       const sessionStore = createInMemorySessionStore()
       const loggerConfig = { level: options.logLevel ?? config.logging.level, filePath: options.logFile ?? config.logging.file }
       const logger = createLogger(loggerConfig)
@@ -622,6 +653,7 @@ program
         client,
         sessionStore,
         model,
+        providerName: config.llm.provider,
         baseSystemPrompt: options.systemPrompt,
         logger: loggerConfig,
         extraTools: [...scheduleHandle.tools, ...memoryTools],

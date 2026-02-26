@@ -101,6 +101,17 @@ describe('buildSystemPrompt', () => {
 
     assert.ok(!result.includes('Keep individual messages under'))
   })
+
+  test('includes provider and model when provided', () => {
+    const profile = makeProfile()
+    const result = buildSystemPrompt('Base.', profile, {
+      providerName: 'minimax',
+      model: 'MiniMax-M2.5',
+    })
+
+    assert.ok(result.includes('Current LLM provider: minimax.'))
+    assert.ok(result.includes('Current model: MiniMax-M2.5.'))
+  })
 })
 
 describe('createDispatcher', () => {

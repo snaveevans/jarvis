@@ -6,7 +6,8 @@ import type { ToolCall, ToolResult, ToolExecutionContext } from '../tools/types.
 const MAX_TOOL_ITERATIONS = 5
 const DEFAULT_MAX_PARALLEL_TOOLS = 5
 
-export type ChatWithToolsClient = Pick<LLMClient, 'chat'>
+export type ChatWithToolsClient =
+  Pick<LLMClient, 'chat'> & Partial<Pick<LLMClient, 'toUserVisibleContent'>>
 
 export interface ToolCallObservation {
   iteration: number

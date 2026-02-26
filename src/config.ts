@@ -1,15 +1,34 @@
 import { loadConfig } from 'c12'
 import { z } from 'zod'
 import { config as loadEnv } from 'dotenv'
+import { LLM_PROVIDERS } from './llm/provider.ts'
 
 // Load .env file before processing configuration
 loadEnv()
 
+const PROVIDER_DEFAULT_BASE_URLS = {
+  synthetic: 'https://api.synthetic.new/openai/v1',
+  minimax: 'https://api.minimax.io/v1',
+  'openai-compatible': '',
+} as const
+
+const providerConfigSchema = z.object({
+  apiKey: z.string().default(''),
+  baseUrl: z.string().default(''),
+  defaultModel: z.string().default(''),
+})
+
 const configSchema = z.object({
   llm: z.object({
-    apiKey: z.string(),
-    defaultModel: z.string(),
-    baseUrl: z.string().url(),
+    apiKey: z.string().default(''),
+    defaultModel: z.string().default(''),
+    baseUrl: z.string().default(''),
+    provider: z.enum(LLM_PROVIDERS).default('synthetic'),
+    providers: z.object({
+      synthetic: providerConfigSchema.default({}),
+      minimax: providerConfigSchema.default({}),
+      openaiCompatible: providerConfigSchema.default({}),
+    }).default({}),
   }),
   telegram: z.object({
     botToken: z.string(),
@@ -54,8 +73,21 @@ export type JarvisConfig = z.infer<typeof configSchema>
 
 // Environment variable to config path mapping
 const envMapping: Record<string, string[]> = {
-  SYNTHETIC_API_KEY: ['llm', 'apiKey'],
+  SYNTHETIC_API_KEY: ['llm', 'providers', 'synthetic', 'apiKey'],
   DEFAULT_MODEL: ['llm', 'defaultModel'],
+  SYNTHETIC_DEFAULT_MODEL: ['llm', 'providers', 'synthetic', 'defaultModel'],
+  SYNTHETIC_BASE_URL: ['llm', 'providers', 'synthetic', 'baseUrl'],
+  MINIMAX_API_KEY: ['llm', 'providers', 'minimax', 'apiKey'],
+  MINIMAX_DEFAULT_MODEL: ['llm', 'providers', 'minimax', 'defaultModel'],
+  MINIMAX_BASE_URL: ['llm', 'providers', 'minimax', 'baseUrl'],
+  OPENAI_API_KEY: ['llm', 'providers', 'minimax', 'apiKey'],
+  OPENAI_BASE_URL: ['llm', 'providers', 'minimax', 'baseUrl'],
+  OPENAI_COMPATIBLE_API_KEY: ['llm', 'providers', 'openaiCompatible', 'apiKey'],
+  OPENAI_COMPATIBLE_DEFAULT_MODEL: ['llm', 'providers', 'openaiCompatible', 'defaultModel'],
+  OPENAI_COMPATIBLE_BASE_URL: ['llm', 'providers', 'openaiCompatible', 'baseUrl'],
+  LLM_API_KEY: ['llm', 'apiKey'],
+  LLM_BASE_URL: ['llm', 'baseUrl'],
+  LLM_PROVIDER: ['llm', 'provider'],
   TELEGRAM_BOT_TOKEN: ['telegram', 'botToken'],
   TELEGRAM_ALLOWED_USER_IDS: ['telegram', 'allowedUserIds'],
   JARVIS_MEMORY_DIR: ['memory', 'dir'],
@@ -91,8 +123,48 @@ export async function getConfig(): Promise<JarvisConfig> {
     throw new Error('Invalid configuration')
   }
 
-  cachedConfig = result.data
-  return result.data
+  const resolvedConfig = resolveProviderConfig(result.data)
+  cachedConfig = resolvedConfig
+  return resolvedConfig
+}
+
+function resolveProviderConfig(config: JarvisConfig): JarvisConfig {
+  const providerKey = config.llm.provider === 'openai-compatible'
+    ? 'openaiCompatible'
+    : config.llm.provider
+
+  const providerSettings = config.llm.providers[providerKey]
+  const resolvedApiKey = config.llm.apiKey || providerSettings.apiKey
+  const resolvedDefaultModel = config.llm.defaultModel || providerSettings.defaultModel
+  const resolvedBaseUrl = config.llm.baseUrl ||
+    providerSettings.baseUrl ||
+    PROVIDER_DEFAULT_BASE_URLS[config.llm.provider]
+
+  if (!resolvedApiKey) {
+    throw new Error(`Missing API key for provider "${config.llm.provider}"`)
+  }
+  if (!resolvedBaseUrl) {
+    throw new Error(`Missing base URL for provider "${config.llm.provider}"`)
+  }
+  if (!resolvedDefaultModel) {
+    throw new Error(`Missing default model for provider "${config.llm.provider}"`)
+  }
+
+  try {
+    new URL(resolvedBaseUrl)
+  } catch {
+    throw new Error(`Invalid base URL for provider "${config.llm.provider}": ${resolvedBaseUrl}`)
+  }
+
+  return {
+    ...config,
+    llm: {
+      ...config.llm,
+      apiKey: resolvedApiKey,
+      baseUrl: resolvedBaseUrl,
+      defaultModel: resolvedDefaultModel,
+    },
+  }
 }
 
 function mergeEnvVars(config: Record<string, unknown>): Record<string, unknown> {
@@ -132,7 +204,25 @@ export function logConfig(logger: { info: (obj: Record<string, unknown>, msg: st
     llm: {
       defaultModel: config.llm.defaultModel,
       baseUrl: config.llm.baseUrl,
+      provider: config.llm.provider,
       apiKey: config.llm.apiKey ? '***set***' : '***NOT SET***',
+      providers: {
+        synthetic: {
+          baseUrl: config.llm.providers.synthetic.baseUrl || '(default)',
+          defaultModel: config.llm.providers.synthetic.defaultModel || '(unset)',
+          apiKey: config.llm.providers.synthetic.apiKey ? '***set***' : '***NOT SET***',
+        },
+        minimax: {
+          baseUrl: config.llm.providers.minimax.baseUrl || '(default)',
+          defaultModel: config.llm.providers.minimax.defaultModel || '(unset)',
+          apiKey: config.llm.providers.minimax.apiKey ? '***set***' : '***NOT SET***',
+        },
+        openaiCompatible: {
+          baseUrl: config.llm.providers.openaiCompatible.baseUrl || '(default)',
+          defaultModel: config.llm.providers.openaiCompatible.defaultModel || '(unset)',
+          apiKey: config.llm.providers.openaiCompatible.apiKey ? '***set***' : '***NOT SET***',
+        },
+      },
     },
     telegram: {
       botToken: config.telegram.botToken ? '***set***' : '***NOT SET***',

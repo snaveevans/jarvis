@@ -88,10 +88,13 @@ Jarvis can run as a Telegram bot using long-polling — no public URL or server 
 
 1. Message [@BotFather](https://t.me/BotFather) on Telegram and create a new bot
 2. Copy the bot token and add it to your `.env`:
+
    ```
    TELEGRAM_BOT_TOKEN=your-token-here
    ```
+
 3. Start the bot:
+
    ```bash
    jarvis telegram
    ```
@@ -272,28 +275,40 @@ Jarvis uses worker threads and process pools to maintain responsiveness:
 ### Parallel Tool Execution
 
 When the LLM requests multiple tools in a single response, they execute concurrently:
+
 - Default: Up to 5 tools in parallel
 - Results ordered by original request order for the LLM
 
 ### Typical Response Times
 
-| Operation | Before | After |
-|-----------|--------|-------|
-| Memory FTS5 search | 50-200ms (blocking) | 1-200ms (non-blocking) |
-| Grep large codebase | 500ms-2s (blocking) | 500ms-2s (non-blocking) |
-| Multi-tool chain | Sum of all (sequential) | Parallel execution |
+| Operation           | Before                  | After                   |
+| ------------------- | ----------------------- | ----------------------- |
+| Memory FTS5 search  | 50-200ms (blocking)     | 1-200ms (non-blocking)  |
+| Grep large codebase | 500ms-2s (blocking)     | 500ms-2s (non-blocking) |
+| Multi-tool chain    | Sum of all (sequential) | Parallel execution      |
 
 ## Environment Variables
 
-| Variable | Required | Description |
-|---|---|---|
-| `SYNTHETIC_API_KEY` | Yes | API key from [synthetic.new](https://synthetic.new/) |
-| `DEFAULT_MODEL` | No | Default model (avoids `-m` flag every time) |
-| `TELEGRAM_BOT_TOKEN` | For Telegram | Bot token from [@BotFather](https://t.me/BotFather) |
-| `JARVIS_MEMORY_DIR` | No | Directory for memory database (default `~/.jarvis`) |
-| `JARVIS_MEMORY_SUMMARY_WINDOW_MINUTES` | No | Rolling auto-summary window (minutes) for dispatcher-backed flows |
-| `JARVIS_LOG_LEVEL` | No | Log level (`debug`, `info`, `warn`, `error`, `silent`) |
-| `JARVIS_LOG_FILE` | No | Path to write logs to a file |
+| Variable                               | Required            | Description                                                       |
+| -------------------------------------- | ------------------- | ----------------------------------------------------------------- |
+| `LLM_PROVIDER`                         | No                  | Active provider (`synthetic`, `minimax`, `openai-compatible`)     |
+| `SYNTHETIC_API_KEY`                    | For synthetic       | API key for synthetic provider                                    |
+| `SYNTHETIC_BASE_URL`                   | No                  | Base URL for synthetic provider                                   |
+| `SYNTHETIC_DEFAULT_MODEL`              | No                  | Default model for synthetic provider                              |
+| `MINIMAX_API_KEY`                      | For minimax         | API key for MiniMax provider                                      |
+| `MINIMAX_BASE_URL`                     | No                  | Base URL for MiniMax provider                                     |
+| `MINIMAX_DEFAULT_MODEL`                | No                  | Default model for MiniMax provider                                |
+| `OPENAI_API_KEY`                       | For minimax (alias) | Alias for `MINIMAX_API_KEY`                                       |
+| `OPENAI_BASE_URL`                      | No (alias)          | Alias for `MINIMAX_BASE_URL`                                      |
+| `OPENAI_COMPATIBLE_DEFAULT_MODEL`      | No                  | Default model for `openai-compatible` provider                    |
+| `LLM_API_KEY`                          | No                  | Override key for active provider                                  |
+| `LLM_BASE_URL`                         | No                  | Override base URL for active provider                             |
+| `DEFAULT_MODEL`                        | No                  | Global model override for active provider                         |
+| `TELEGRAM_BOT_TOKEN`                   | For Telegram        | Bot token from [@BotFather](https://t.me/BotFather)               |
+| `JARVIS_MEMORY_DIR`                    | No                  | Directory for memory database (default `~/.jarvis`)               |
+| `JARVIS_MEMORY_SUMMARY_WINDOW_MINUTES` | No                  | Rolling auto-summary window (minutes) for dispatcher-backed flows |
+| `JARVIS_LOG_LEVEL`                     | No                  | Log level (`debug`, `info`, `warn`, `error`, `silent`)            |
+| `JARVIS_LOG_FILE`                      | No                  | Path to write logs to a file                                      |
 
 ## Troubleshooting
 
@@ -336,6 +351,7 @@ node --experimental-strip-types src/cli.ts --help
 ### Worker Thread Debugging
 
 Worker threads run in separate contexts. To debug:
+
 1. Add logging in worker code (`console.log` outputs to main process stderr)
 2. Check `logger` output for worker spawn/exit events
 3. Tests run in isolated contexts - use `test()` not `describe()` for worker tests

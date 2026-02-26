@@ -1,8 +1,24 @@
 {
   "llm": {
-    "apiKey": "",
-    "defaultModel": "hf:nvidia/Kimi-K2.5-NVFP4",
-    "baseUrl": "https://api.synthetic.new/v1"
+    "provider": "minimax",
+    "defaultModel": "",
+    "providers": {
+      "synthetic": {
+        "apiKey": "",
+        "baseUrl": "https://api.synthetic.new/openai/v1",
+        "defaultModel": "hf:nvidia/Kimi-K2.5-NVFP4"
+      },
+      "minimax": {
+        "apiKey": "",
+        "baseUrl": "https://api.minimax.io/v1",
+        "defaultModel": "MiniMax-M2.5"
+      },
+      "openaiCompatible": {
+        "apiKey": "",
+        "baseUrl": "",
+        "defaultModel": ""
+      }
+    }
   },
   "telegram": {
     "botToken": "",

@@ -13,6 +13,8 @@ import {
   LLMInvalidRequestError,
   LLMModelNotFoundError,
 } from './errors.ts'
+import { inferProviderFromBaseUrl, stripThinkingContent } from './provider.ts'
+import type { LLMProvider } from './provider.ts'
 
 const BASE_URL = 'https://api.synthetic.new/openai/v1'
 
@@ -20,11 +22,14 @@ export interface LLMClientConfig {
   apiKey?: string
   baseUrl?: string
   defaultModel?: string
+  provider?: LLMProvider
 }
 
 export class LLMClient {
   private readonly client: OpenAI
   private readonly defaultModel: string
+  private readonly provider: LLMProvider
+  private readonly baseUrl: string
 
   constructor(config: LLMClientConfig = {}) {
     const apiKey = config.apiKey
@@ -36,12 +41,22 @@ export class LLMClient {
       )
     }
 
+    this.baseUrl = config.baseUrl ?? BASE_URL
+    this.provider = config.provider ?? inferProviderFromBaseUrl(this.baseUrl)
+
     this.client = new OpenAI({
       apiKey,
-      baseURL: config.baseUrl ?? BASE_URL,
+      baseURL: this.baseUrl,
     })
     
     this.defaultModel = config.defaultModel ?? ''
+  }
+
+  toUserVisibleContent(content: string): string {
+    if (this.provider !== 'minimax') {
+      return content
+    }
+    return stripThinkingContent(content)
   }
 
   private mapError(error: unknown): never {
@@ -85,6 +100,7 @@ export class LLMClient {
       if (options.tools !== undefined) params.tools = options.tools
       if (options.tool_choice !== undefined) params.tool_choice = options.tool_choice
       if (options.response_format !== undefined) params.response_format = options.response_format
+      if (this.provider === 'minimax') params.extra_body = { reasoning_split: true }
 
       const response = await this.client.chat.completions.create(
         params as Parameters<typeof this.client.chat.completions.create>[0]
@@ -111,6 +127,7 @@ export class LLMClient {
       if (options.tools !== undefined) params.tools = options.tools
       if (options.tool_choice !== undefined) params.tool_choice = options.tool_choice
       if (options.response_format !== undefined) params.response_format = options.response_format
+      if (this.provider === 'minimax') params.extra_body = { reasoning_split: true }
 
       const stream = await this.client.chat.completions.create(
         params as Parameters<typeof this.client.chat.completions.create>[0]

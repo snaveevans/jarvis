@@ -19,6 +19,7 @@ export interface DispatcherConfig {
   client: ChatWithToolsClient
   sessionStore: SessionStore
   model: string
+  providerName?: string
   baseSystemPrompt?: string
   logger?: LoggerConfig
   extraTools?: Tool[]
@@ -39,7 +40,11 @@ export interface Dispatcher {
   start(): Promise<() => void>
 }
 
-export function buildSystemPrompt(basePrompt: string, profile: EndpointProfile): string {
+export function buildSystemPrompt(
+  basePrompt: string,
+  profile: EndpointProfile,
+  runtime?: { providerName?: string, model?: string }
+): string {
   const lines: string[] = []
 
   lines.push(`You are responding via ${profile.displayName}.`)
@@ -50,6 +55,12 @@ export function buildSystemPrompt(basePrompt: string, profile: EndpointProfile):
   }
 
   lines.push(`Use ${profile.formatting} formatting.`)
+  if (runtime?.providerName || runtime?.model) {
+    const providerName = runtime.providerName ?? 'unknown'
+    const model = runtime.model ?? 'unknown'
+    lines.push(`Current LLM provider: ${providerName}.`)
+    lines.push(`Current model: ${model}.`)
+  }
   lines.push('')
   lines.push(basePrompt)
 
@@ -115,7 +126,10 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
   }
 
   function buildFullSystemPrompt(profile: EndpointProfile): string {
-    let prompt = buildSystemPrompt(basePrompt, profile)
+    let prompt = buildSystemPrompt(basePrompt, profile, {
+      providerName: config.providerName,
+      model: config.model,
+    })
     if (skillRegistry) {
       const skillBlock = skillRegistry.getSystemPromptBlock()
       if (skillBlock) {
@@ -123,6 +137,13 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
       }
     }
     return prompt
+  }
+
+  function toUserVisibleContent(content: string): string {
+    if (typeof config.client.toUserVisibleContent === 'function') {
+      return config.client.toUserVisibleContent(content)
+    }
+    return content
   }
 
   async function getMemoryContext(query: string): Promise<string | undefined> {
@@ -303,12 +324,13 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
             })
             return
           }
+          const userVisibleContent = toUserVisibleContent(content)
 
           // Store assistant response
           config.sessionStore.addMessage(session.id, { role: 'assistant', content })
 
           await endpoint.send({
-            text: content,
+            text: userVisibleContent,
             sessionId: message.sessionId,
             endpointKind: message.endpointKind,
           })
@@ -383,11 +405,12 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
 
           const content = response.choices[0]?.message?.content
           if (!content) return
+          const userVisibleContent = toUserVisibleContent(content)
 
           config.sessionStore.addMessage(session.id, { role: 'assistant', content })
 
           await endpoint.send({
-            text: content,
+            text: userVisibleContent,
             sessionId: params.sessionId,
             endpointKind: params.endpointKind,
           })
