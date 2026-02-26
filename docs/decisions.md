@@ -57,7 +57,19 @@ Each decision follows this format:
 - **Context**: Session-scoped cancellation prevents accidental cross-thread cancellation and keeps reminder behavior predictable. In a single-user system, intentional cross-session control is still useful, so a deliberate override flag provides that capability without making it the default.
 - **Consequences**: Safe defaults are preserved for skills like reminder, while power users and system-level orchestration can intentionally perform global cancellation when needed.
 
-### Language and Ecosystem
+### Local memory with bounded retrieval
+
+- **Date**: 2026-02-26
+- **Decision**: Introduce a local SQLite memory layer (`~/.jarvis/memory.db`) with typed memories, FTS5 search, bounded auto-context injection, and explicit memory tools/CLI management.
+- **Context**: Jarvis needed durable recall across sessions without bloating every prompt. A tool-driven memory model preserves context discipline while still enabling selective persistence and retrieval.
+- **Consequences**: Memory is on by default across chat/chat-with-tools/telegram/serve and can be disabled per invocation (`--no-memory`). The system gains persistent recall, searchable memory CLI workflows, and best-effort conversation summarization without blocking normal responses.
+
+### Process separation for single-user bare metal
+
+- **Date**: 2026-02-26
+- **Decision**: Move blocking operations to worker threads; use Node.js worker threads + process pool for shell
+- **Context**: SQLite operations (via better-sqlite3) block the event loop. Grep and shell commands can also cause delays. For a single-user bare metal system, worker threads provide the right balance: lighter than separate services, shared memory possible, no external dependencies like Redis or message queues needed.
+- **Consequences**: Main thread stays responsive. SQLite runs in a dedicated worker thread where synchronous operations are fine. Shell commands get true process isolation via a pool. File search uses worker threads for CPU-intensive regex. All within one Node.js process for simple deployment.
 
 - **Date**: 2025-02-25
 - **Decision**: Use Node.js + TypeScript (native execution via `--loader` or `.mjs`)
