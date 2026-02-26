@@ -13,7 +13,6 @@ import type { SkillRegistry } from './skills/index.ts'
 
 const DEFAULT_BASE_PROMPT =
   'You are a helpful assistant with access to tools: read, glob, grep, edit, write, shell, ask_user, todo_list, web_fetch, sub_agent, and read_file. Prefer specialized tools over shell for file operations.'
-const DEFAULT_SUMMARY_WINDOW_MS = 30 * 60 * 1000
 
 export interface DispatcherConfig {
   client: ChatWithToolsClient
@@ -25,7 +24,9 @@ export interface DispatcherConfig {
   extraTools?: Tool[]
   skillRegistry?: SkillRegistry
   memoryService?: MemoryService
+  /** @deprecated No longer used — eviction-based memory replaces time-window summarization */
   summaryWindowMs?: number
+  /** @deprecated No longer used — eviction-based memory replaces time-window summarization */
   autoSummarize?: boolean
   maxToolIterations?: number
   maxParallelTools?: number
@@ -79,15 +80,6 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
   const pendingMemoryWrites = new Set<Promise<void>>()
   let activeOperations = 0
   const idleResolvers = new Set<() => void>()
-  const summaryWindowMs = config.summaryWindowMs ?? DEFAULT_SUMMARY_WINDOW_MS
-  const autoSummarize = config.autoSummarize
-  
-  const sessionSummaryWindows = new Map<string, Array<{
-    timestampMs: number
-    hadToolCalls: boolean
-    messages: ChatMessage[]
-  }>>()
-  const sessionLastSummarizedAt = new Map<string, number>()
 
   // Build merged tool definitions and executor if we have extra tools
   let mergedToolOptions: { tools?: ToolDefinition[], executeTool?: (call: ToolCall, ctx?: ToolExecutionContext) => Promise<ToolResult> } = {}
@@ -164,76 +156,6 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
     }
   }
 
-  function summarizeSession(
-    sessionId: string,
-    messages: ChatMessage[],
-    hadToolCalls: boolean,
-    timestampMs: number
-  ): void {
-    if (!memoryService || !autoSummarize) {
-      return
-    }
-
-    const existing = sessionSummaryWindows.get(sessionId) ?? []
-    existing.push({ timestampMs, hadToolCalls, messages })
-    const cutoffMs = timestampMs - summaryWindowMs
-    const windowEntries = existing.filter(entry => entry.timestampMs >= cutoffMs)
-    sessionSummaryWindows.set(sessionId, windowEntries)
-
-    const lastSummarizedAt = sessionLastSummarizedAt.get(sessionId) ?? 0
-    const unsummarizedEntries = windowEntries.filter(entry => entry.timestampMs > lastSummarizedAt)
-
-    if (unsummarizedEntries.length === 0) {
-      logger.info(
-        { sessionId, windowMinutes: Math.round(summaryWindowMs / 60000), reason: 'no_new_messages' },
-        'Auto-memory summarize skipped'
-      )
-      return
-    }
-
-    const candidateMessages = unsummarizedEntries.flatMap(entry => entry.messages)
-    const candidateHadToolCalls = unsummarizedEntries.some(entry => entry.hadToolCalls)
-    const rangeStartMs = unsummarizedEntries[0].timestampMs
-    const rangeEndMs = unsummarizedEntries[unsummarizedEntries.length - 1].timestampMs
-    const source = `${sessionId} window ${new Date(rangeStartMs).toISOString()}..${new Date(rangeEndMs).toISOString()}`
-
-    logger.info(
-      {
-        sessionId,
-        source,
-        hadToolCalls: candidateHadToolCalls,
-        messageCount: candidateMessages.length,
-        windowMinutes: Math.round(summaryWindowMs / 60000),
-      },
-      'Auto-memory summarize queued'
-    )
-
-    const write = (async () => {
-      const outcome = await memoryService.summarizeAndStore({
-        client: config.client,
-        model: config.model,
-        messages: candidateMessages,
-        hadToolCalls: candidateHadToolCalls,
-        source,
-        force: true,
-      })
-
-      logger.info(
-        { sessionId, source, outcome, coveredMessages: candidateMessages.length },
-        'Auto-memory summarize window outcome'
-      )
-
-      if (outcome === 'stored' || outcome === 'deduplicated') {
-        sessionLastSummarizedAt.set(sessionId, rangeEndMs)
-      }
-    })()
-
-    pendingMemoryWrites.add(write)
-    void write.finally(() => {
-      pendingMemoryWrites.delete(write)
-    })
-  }
-
   function beginOperation(): void {
     activeOperations++
   }
@@ -282,7 +204,6 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
         }
 
         // Add user message
-        const interactionStart = session.messages.length
         config.sessionStore.addMessage(session.id, { role: 'user', content: message.text })
 
         const toolContext: ToolExecutionContext = {
@@ -295,7 +216,6 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
         const llmMessages = memoryContext
           ? [{ role: 'system', content: memoryContext } as ChatMessage, ...session.messages]
           : session.messages
-        let hadToolCalls = false
 
         try {
           const response = await chatWithTools(config.client, llmMessages, {
@@ -305,7 +225,6 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
             maxParallelTools: config.maxParallelTools,
             maxIterations: config.maxToolIterations,
             onToolCall: (observation) => {
-              hadToolCalls = true
               logger.info(
                 {
                   sessionId: message.sessionId,
@@ -318,6 +237,19 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
               )
             },
           })
+
+          if (response.usage) {
+            logger.info(
+              {
+                sessionId: message.sessionId,
+                event: 'llm_usage',
+                promptTokens: response.usage.prompt_tokens,
+                completionTokens: response.usage.completion_tokens,
+                totalTokens: response.usage.total_tokens,
+              },
+              'LLM usage'
+            )
+          }
 
           const content = response.choices[0]?.message?.content
           if (!content) {
@@ -338,14 +270,6 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
             sessionId: message.sessionId,
             endpointKind: message.endpointKind,
           })
-
-          const interactionMessages = session.messages.slice(interactionStart)
-          summarizeSession(
-            session.id,
-            interactionMessages,
-            hadToolCalls,
-            message.timestamp.getTime()
-          )
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error)
           logger.error({ sessionId: message.sessionId, error: errorMessage }, 'Error processing message')
@@ -382,7 +306,6 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
         }
 
         // Add the proactive message as a user message
-        const interactionStart = session.messages.length
         config.sessionStore.addMessage(session.id, { role: 'user', content: params.text })
 
         const toolContext: ToolExecutionContext = {
@@ -395,7 +318,6 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
         const llmMessages = memoryContext
           ? [{ role: 'system', content: memoryContext } as ChatMessage, ...session.messages]
           : session.messages
-        let hadToolCalls = false
 
         try {
           const response = await chatWithTools(config.client, llmMessages, {
@@ -404,9 +326,6 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
             toolContext,
             maxParallelTools: config.maxParallelTools,
             maxIterations: config.maxToolIterations,
-            onToolCall: () => {
-              hadToolCalls = true
-            },
           })
 
           const content = response.choices[0]?.message?.content
@@ -420,14 +339,6 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
             sessionId: params.sessionId,
             endpointKind: params.endpointKind,
           })
-
-          const interactionMessages = session.messages.slice(interactionStart)
-          summarizeSession(
-            session.id,
-            interactionMessages,
-            hadToolCalls,
-            Date.now()
-          )
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error)
           logger.error({ sessionId: params.sessionId, error: errorMessage }, 'Error in proactive send')

@@ -16,6 +16,8 @@ export type {
   MemoryType,
 } from './types.ts'
 export { MEMORY_TYPES } from './types.ts'
+export { createEvictionEvaluator } from './eviction-evaluator.ts'
+export type { EvictionEvaluatorConfig } from './eviction-evaluator.ts'
 export type { MemoryRow } from './helpers.ts'
 export {
   estimateTokenCount,

@@ -14,7 +14,7 @@ import { createTelegramEndpoint } from './endpoints/telegram.ts'
 import { createCliEndpoint } from './endpoints/cli.ts'
 import { createCronScheduler } from './triggers/cron.ts'
 import { createSkillRegistry } from './skills/index.ts'
-import { MEMORY_TYPES, createMemoryService } from './memory/index.ts'
+import { MEMORY_TYPES, createMemoryService, createEvictionEvaluator } from './memory/index.ts'
 import { createMemoryWorkerClient, createSearchWorkerPool } from './workers/index.ts'
 import { createShellPool } from './shell/index.ts'
 import { createScheduleMessageTools } from './tools/schedule-message.ts'
@@ -62,27 +62,6 @@ function formatMemoryRows(rows: Array<{
   }).join('\n\n')
 }
 
-function parseSummaryWindowMinutes(value: unknown): number | undefined {
-  if (typeof value !== 'string' || !value.trim()) {
-    return undefined
-  }
-  const parsed = Number(value)
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    console.error('Error: memory summary window must be a positive number of minutes.')
-    process.exit(1)
-  }
-  return parsed
-}
-
-async function resolveAutoSummarize(cliFlag: boolean | undefined): Promise<boolean> {
-  // If explicitly disabled via --no-auto-summary, return false
-  if (cliFlag === false) return false
-  // If explicitly enabled (rare, but possible), return true
-  if (cliFlag === true) return true
-  // Check config file (already loaded with env var overrides applied)
-  const config = await getConfig()
-  return config.memory.autoSummarize
-}
 
 const program = new Command()
 
@@ -418,9 +397,6 @@ program
   .option('--log-level <level>', 'Log level for tool-call logs', 'info')
   .option('--log-file <path>', 'Also write tool-call logs to a file')
   .option('--no-memory', 'Disable memory features for this invocation')
-  .option('--auto-summary', 'Enable auto-summarization of conversations')
-  .option('--no-auto-summary', 'Disable auto-summarization of conversations')
-  .option('--memory-summary-window-minutes <minutes>', 'Rolling summary window in minutes')
   .action(async (message, options) => {
     let memoryService: ReturnType<typeof createMemoryService> | undefined
     let dispatcher: ReturnType<typeof createDispatcher> | undefined
@@ -440,8 +416,6 @@ program
         baseUrl: config.llm.baseUrl,
         provider: config.llm.provider,
       })
-      const sessionStore = createInMemorySessionStore()
-      const cliEndpoint = createCliEndpoint()
       const loggerConfig = { level: options.logLevel ?? config.logging.level, filePath: options.logFile ?? config.logging.file }
       const logger = createLogger(loggerConfig)
 
@@ -452,10 +426,13 @@ program
           archiveRetentionDays: config.memory.archiveRetentionDays,
         })
       }
+
+      const onEvict = memoryService
+        ? createEvictionEvaluator({ client, model, memoryService, logger })
+        : undefined
+      const sessionStore = createInMemorySessionStore({ onEvict })
+      const cliEndpoint = createCliEndpoint()
       const memoryTools = memoryService ? createMemoryTools(memoryService) : []
-      const summaryWindowMinutes = parseSummaryWindowMinutes(
-        options.memorySummaryWindowMinutes ?? config.memory.summaryWindowMinutes
-      )
 
       dispatcher = createDispatcher({
         client,
@@ -466,8 +443,6 @@ program
         logger: loggerConfig,
         extraTools: memoryTools,
         memoryService,
-        summaryWindowMs: summaryWindowMinutes ? summaryWindowMinutes * 60_000 : undefined,
-        autoSummarize: await resolveAutoSummarize(options.autoSummary),
         maxToolIterations: config.tools.maxIterations,
         maxParallelTools: config.tools.maxParallel,
       })
@@ -507,9 +482,6 @@ program
   .option('--log-level <level>', 'Log level', 'info')
   .option('--log-file <path>', 'Also write logs to a file')
   .option('--no-memory', 'Disable memory features for this invocation')
-  .option('--auto-summary', 'Enable auto-summarization of conversations')
-  .option('--no-auto-summary', 'Disable auto-summarization of conversations')
-  .option('--memory-summary-window-minutes <minutes>', 'Rolling summary window in minutes')
   .action(async (options) => {
     let memoryService: MemoryService | undefined
     try {
@@ -535,14 +507,6 @@ program
         baseUrl: config.llm.baseUrl,
         provider: config.llm.provider,
       })
-      const sessionStore = createInMemorySessionStore()
-      const telegramEndpoint = createTelegramEndpoint({
-        token,
-        allowedUserIds,
-        logLevel: options.logLevel,
-        logFile: options.logFile,
-      })
-
       const loggerConfig = { level: options.logLevel ?? config.logging.level, filePath: options.logFile ?? config.logging.file }
       const telegramLogger = createLogger(loggerConfig)
       logConfig(telegramLogger, config)
@@ -553,10 +517,19 @@ program
           archiveRetentionDays: config.memory.archiveRetentionDays,
         })
       }
+
+      const onEvict = memoryService
+        ? createEvictionEvaluator({ client, model, memoryService, logger: telegramLogger })
+        : undefined
+      const sessionStore = createInMemorySessionStore({ onEvict })
+      const telegramEndpoint = createTelegramEndpoint({
+        token,
+        allowedUserIds,
+        logLevel: options.logLevel,
+        logFile: options.logFile,
+      })
+
       const memoryTools = memoryService ? createMemoryTools(memoryService) : []
-      const summaryWindowMinutes = parseSummaryWindowMinutes(
-        options.memorySummaryWindowMinutes ?? config.memory.summaryWindowMinutes
-      )
 
       const skillRegistry = createSkillRegistry()
       skillRegistry.register({
@@ -587,8 +560,6 @@ program
         extraTools: [...scheduleHandle.tools, ...memoryTools],
         skillRegistry,
         memoryService,
-        summaryWindowMs: summaryWindowMinutes ? summaryWindowMinutes * 60_000 : undefined,
-        autoSummarize: await resolveAutoSummarize(options.autoSummary),
         maxToolIterations: config.tools.maxIterations,
         maxParallelTools: config.tools.maxParallel,
         searchPool,
@@ -634,9 +605,6 @@ program
   .option('--log-file <path>', 'Also write logs to a file')
   .option('--cron <tasks>', 'Cron tasks as JSON array: [{"name","intervalMs","targetSessionId","targetEndpointKind","prompt"}]')
   .option('--no-memory', 'Disable memory features for this invocation')
-  .option('--auto-summary', 'Enable auto-summarization of conversations')
-  .option('--no-auto-summary', 'Disable auto-summarization of conversations')
-  .option('--memory-summary-window-minutes <minutes>', 'Rolling summary window in minutes')
   .action(async (options) => {
     let memoryService: MemoryService | undefined
     try {
@@ -654,7 +622,6 @@ program
         baseUrl: config.llm.baseUrl,
         provider: config.llm.provider,
       })
-      const sessionStore = createInMemorySessionStore()
       const loggerConfig = { level: options.logLevel ?? config.logging.level, filePath: options.logFile ?? config.logging.file }
       const logger = createLogger(loggerConfig)
       logConfig(logger, config)
@@ -665,10 +632,12 @@ program
           archiveRetentionDays: config.memory.archiveRetentionDays,
         })
       }
+
+      const onEvict = memoryService
+        ? createEvictionEvaluator({ client, model, memoryService, logger })
+        : undefined
+      const sessionStore = createInMemorySessionStore({ onEvict })
       const memoryTools = memoryService ? createMemoryTools(memoryService) : []
-      const summaryWindowMinutes = parseSummaryWindowMinutes(
-        options.memorySummaryWindowMinutes ?? config.memory.summaryWindowMinutes
-      )
 
       const skillRegistry = createSkillRegistry()
       skillRegistry.register({
@@ -699,8 +668,6 @@ program
         extraTools: [...scheduleHandle.tools, ...memoryTools],
         skillRegistry,
         memoryService,
-        summaryWindowMs: summaryWindowMinutes ? summaryWindowMinutes * 60_000 : undefined,
-        autoSummarize: await resolveAutoSummarize(options.autoSummary),
         maxToolIterations: config.tools.maxIterations,
         maxParallelTools: config.tools.maxParallel,
         searchPool,

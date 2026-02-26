@@ -17,12 +17,16 @@ import { inferProviderFromBaseUrl, stripThinkingContent } from './provider.ts'
 import type { LLMProvider } from './provider.ts'
 
 const DEFAULT_BASE_URL = 'https://api.synthetic.new/openai/v1'
+const DEFAULT_MAX_RETRIES = 3
+const RETRY_BASE_DELAY_MS = 1000
+const RETRYABLE_STATUS_CODES = new Set([429, 502, 503, 504])
 
 export interface LLMClientConfig {
   apiKey?: string
   baseUrl?: string
   defaultModel?: string
   provider?: LLMProvider
+  maxRetries?: number
 }
 
 export class LLMClient {
@@ -30,10 +34,11 @@ export class LLMClient {
   private readonly defaultModel: string
   private readonly provider: LLMProvider
   private readonly baseUrl: string
+  private readonly maxRetries: number
 
   constructor(config: LLMClientConfig = {}) {
     const apiKey = config.apiKey
-    
+
     if (!apiKey) {
       throw new LLMError(
         'API key is required. Set llm.apiKey in config file.',
@@ -43,12 +48,13 @@ export class LLMClient {
 
     this.baseUrl = config.baseUrl ?? process.env.JARVIS_BASE_URL ?? DEFAULT_BASE_URL
     this.provider = config.provider ?? inferProviderFromBaseUrl(this.baseUrl)
+    this.maxRetries = config.maxRetries ?? DEFAULT_MAX_RETRIES
 
     this.client = new OpenAI({
       apiKey,
       baseURL: this.baseUrl,
     })
-    
+
     this.defaultModel = config.defaultModel ?? ''
   }
 
@@ -78,11 +84,48 @@ export class LLMClient {
           )
       }
     }
-    
+
     throw new LLMError(
       error instanceof Error ? error.message : String(error),
       'UNKNOWN_ERROR'
     )
+  }
+
+  private isRetryable(error: unknown): boolean {
+    if (error instanceof OpenAI.APIError && error.status !== undefined) {
+      return RETRYABLE_STATUS_CODES.has(error.status)
+    }
+    return false
+  }
+
+  private getRetryDelay(error: unknown, attempt: number): number {
+    if (error instanceof OpenAI.APIError && error.status === 429) {
+      const retryAfter = error.headers?.['retry-after']
+      if (retryAfter) {
+        const seconds = Number(retryAfter)
+        if (Number.isFinite(seconds) && seconds > 0) {
+          return Math.min(seconds * 1000, 30_000)
+        }
+      }
+    }
+    return RETRY_BASE_DELAY_MS * Math.pow(2, attempt)
+  }
+
+  private async _withRetry<T>(fn: () => Promise<T>): Promise<T> {
+    let lastError: unknown
+    for (let attempt = 0; attempt < this.maxRetries; attempt++) {
+      try {
+        return await fn()
+      } catch (error) {
+        lastError = error
+        if (!this.isRetryable(error) || attempt === this.maxRetries - 1) {
+          throw error
+        }
+        const delay = this.getRetryDelay(error, attempt)
+        await new Promise(resolve => setTimeout(resolve, delay))
+      }
+    }
+    throw lastError
   }
 
   async chat(
@@ -102,8 +145,10 @@ export class LLMClient {
       if (options.response_format !== undefined) params.response_format = options.response_format
       if (this.provider === 'minimax') params.extra_body = { reasoning_split: true }
 
-      const response = await this.client.chat.completions.create(
-        params as Parameters<typeof this.client.chat.completions.create>[0]
+      const response = await this._withRetry(() =>
+        this.client.chat.completions.create(
+          params as Parameters<typeof this.client.chat.completions.create>[0]
+        )
       )
 
       return response as unknown as ChatCompletionResponse

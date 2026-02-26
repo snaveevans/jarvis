@@ -331,22 +331,11 @@ describe('createDispatcher', () => {
     assert.ok(stopCalled)
   })
 
-  test('flushMemoryWrites waits for in-flight summaries', async () => {
+  test('flushMemoryWrites resolves when no pending writes', async () => {
     const store = createInMemorySessionStore()
     const endpoint = makeMockEndpoint()
-    let releaseSummary: (() => void) | undefined
-    let summaryCompleted = false
-
-    const client = makeMockClient('Needs summary')
-    const memoryService = makeMockMemoryService({
-      summarizeAndStore: async () => {
-        await new Promise<void>((resolve) => {
-          releaseSummary = resolve
-        })
-        summaryCompleted = true
-        return 'stored'
-      },
-    })
+    const client = makeMockClient('Hello')
+    const memoryService = makeMockMemoryService()
 
     const dispatcher = createDispatcher({
       client,
@@ -358,17 +347,15 @@ describe('createDispatcher', () => {
     dispatcher.registerEndpoint(endpoint)
 
     await dispatcher.handleInbound({
-      text: 'Remember this',
+      text: 'Hello',
       sessionId: 'test:flush',
       endpointKind: 'test',
       timestamp: new Date(),
     })
 
-    const flushPromise = dispatcher.flushMemoryWrites(500)
-    assert.equal(summaryCompleted, false)
-    releaseSummary?.()
-    await flushPromise
-    assert.equal(summaryCompleted, true)
+    // Should resolve immediately — no in-flight writes
+    await dispatcher.flushMemoryWrites(500)
+    assert.equal(endpoint.sent.length, 1)
   })
 
   test('waitForIdle waits for active inbound operations', async () => {
@@ -415,7 +402,6 @@ describe('createDispatcher', () => {
     const store = createInMemorySessionStore()
     const endpoint = makeMockEndpoint()
     let observedMessages: ChatMessage[] = []
-    let summarizeCalled = false
 
     const client = {
       async chat(messages: ChatMessage[]): Promise<ChatCompletionResponse> {
@@ -436,7 +422,6 @@ describe('createDispatcher', () => {
 
     const memoryService = makeMockMemoryService({
       getAutoContext: async () => 'Relevant context from memory:\n- [fact] Existing project fact',
-      summarizeAndStore: async () => { summarizeCalled = true; return 'stored' },
     })
 
     const dispatcher = createDispatcher({
@@ -454,51 +439,8 @@ describe('createDispatcher', () => {
       endpointKind: 'test',
       timestamp: new Date(),
     })
-    await new Promise(resolve => setTimeout(resolve, 0))
 
     assert.equal(observedMessages[0].role, 'system')
     assert.ok(observedMessages[0].content.includes('Relevant context from memory'))
-    assert.ok(summarizeCalled)
-  })
-
-  test('rolling summarization only includes unsummarized interaction messages', async () => {
-    const store = createInMemorySessionStore()
-    const endpoint = makeMockEndpoint()
-    const client = makeMockClient('ok')
-    const summarizedMessageCounts: number[] = []
-
-    const memoryService = makeMockMemoryService({
-      summarizeAndStore: async (input) => {
-        summarizedMessageCounts.push(input.messages.length)
-        return 'stored'
-      },
-    })
-
-    const dispatcher = createDispatcher({
-      client,
-      sessionStore: store,
-      model: 'test-model',
-      logger: { level: 'silent' },
-      memoryService,
-      summaryWindowMs: 30 * 60 * 1000,
-    })
-    dispatcher.registerEndpoint(endpoint)
-
-    await dispatcher.handleInbound({
-      text: 'first message',
-      sessionId: 'test:rolling',
-      endpointKind: 'test',
-      timestamp: new Date(),
-    })
-
-    await dispatcher.handleInbound({
-      text: 'second message',
-      sessionId: 'test:rolling',
-      endpointKind: 'test',
-      timestamp: new Date(),
-    })
-
-    await dispatcher.flushMemoryWrites(1000)
-    assert.deepEqual(summarizedMessageCounts, [2, 2])
   })
 })
