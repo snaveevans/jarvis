@@ -1,10 +1,11 @@
 import type { LLMClient } from './client.ts'
 import type { ChatMessage, ChatCompletionResponse } from './types.ts'
 import { getToolDefinitions, executeTool as defaultExecuteTool } from '../tools/index.ts'
+import { parsePositiveEnvInt } from '../tools/common.ts'
 import type { ToolCall, ToolResult, ToolExecutionContext } from '../tools/types.ts'
 
-const MAX_TOOL_ITERATIONS = 5
-const DEFAULT_MAX_PARALLEL_TOOLS = 5
+const MAX_TOOL_ITERATIONS = parsePositiveEnvInt('JARVIS_TOOLS_MAX_ITERATIONS', 5)
+const DEFAULT_MAX_PARALLEL_TOOLS = parsePositiveEnvInt('JARVIS_TOOLS_MAX_PARALLEL', 5)
 
 export type ChatWithToolsClient =
   Pick<LLMClient, 'chat'> & Partial<Pick<LLMClient, 'toUserVisibleContent'>>
@@ -35,9 +36,10 @@ export interface ChatWithToolsOptions {
   executeTool?: ToolExecutor
   toolContext?: ToolExecutionContext
   maxParallelTools?: number
+  maxIterations?: number
 }
 
-function createIterationLimitResponse(model?: string): ChatCompletionResponse {
+function createIterationLimitResponse(model: string | undefined, maxIter: number): ChatCompletionResponse {
   return {
     id: 'tool_iteration_limit',
     object: 'chat.completion',
@@ -48,7 +50,7 @@ function createIterationLimitResponse(model?: string): ChatCompletionResponse {
         index: 0,
         message: {
           role: 'assistant',
-          content: `Reached maximum tool iterations (${MAX_TOOL_ITERATIONS}) without producing a final answer. Please narrow the request or split it into smaller steps.`,
+          content: `Reached maximum tool iterations (${maxIter}) without producing a final answer. Please narrow the request or split it into smaller steps.`,
         },
         finish_reason: 'stop',
       },
@@ -91,11 +93,12 @@ export async function chatWithTools(
   const tools = options.tools ?? getToolDefinitions()
   const executeToolFn = options.executeTool ?? defaultExecuteTool
   const maxParallel = options.maxParallelTools ?? DEFAULT_MAX_PARALLEL_TOOLS
+  const maxIter = options.maxIterations ?? MAX_TOOL_ITERATIONS
   let currentMessages = [...messages]
   let iteration = 0
   let latestModel = options.model
 
-  while (iteration < MAX_TOOL_ITERATIONS) {
+  while (iteration < maxIter) {
     iteration++
 
     const response = await client.chat(currentMessages, {
@@ -157,5 +160,5 @@ export async function chatWithTools(
   }
 
   // If we hit max iterations, return a clean fallback response.
-  return createIterationLimitResponse(latestModel)
+  return createIterationLimitResponse(latestModel, maxIter)
 }

@@ -36,6 +36,7 @@ The main configuration file is located at `.config/default.json`:
   "memory": {
     "enabled": true,
     "dir": "",
+    "archiveRetentionDays": 14,
     "summaryWindowMinutes": 30,
     "autoSummarize": false
   },
@@ -77,6 +78,7 @@ Environment variables are automatically mapped to configuration values. Create `
 | `TELEGRAM_BOT_TOKEN` | `telegram.botToken` |
 | `TELEGRAM_ALLOWED_USER_IDS` | `telegram.allowedUserIds` |
 | `JARVIS_MEMORY_DIR` | `memory.dir` |
+| `JARVIS_MEMORY_ARCHIVE_RETENTION_DAYS` | `memory.archiveRetentionDays` |
 | `JARVIS_MEMORY_SUMMARY_WINDOW_MINUTES` | `memory.summaryWindowMinutes` |
 | `JARVIS_AUTO_SUMMARIZE` | `memory.autoSummarize` |
 | `JARVIS_LOG_LEVEL` | `logging.level` |

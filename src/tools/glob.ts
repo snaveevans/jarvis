@@ -3,9 +3,9 @@ import { stat } from 'node:fs/promises'
 import fg from 'fast-glob'
 
 import type { Tool, ToolResult, ToolExecutionContext } from './types.ts'
-import { capOutput, getWorkspaceRoot, resolveWorkspacePath } from './common.ts'
+import { capOutput, getWorkspaceRoot, resolveWorkspacePath, parsePositiveEnvInt } from './common.ts'
 
-const MAX_RESULTS = 1_000
+const MAX_RESULTS = parsePositiveEnvInt('JARVIS_TOOLS_MAX_GLOB_RESULTS', 1_000)
 
 export const globTool: Tool = {
   name: 'glob',

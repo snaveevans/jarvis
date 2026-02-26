@@ -3,9 +3,9 @@ import { readFile } from 'node:fs/promises'
 import fg from 'fast-glob'
 
 import type { Tool, ToolResult, ToolExecutionContext } from './types.ts'
-import { capOutput, getWorkspaceRoot, resolveWorkspacePath } from './common.ts'
+import { capOutput, getWorkspaceRoot, resolveWorkspacePath, parsePositiveEnvInt } from './common.ts'
 
-const MAX_MATCHES = 1_000
+const MAX_MATCHES = parsePositiveEnvInt('JARVIS_TOOLS_MAX_GREP_MATCHES', 1_000)
 
 export const grepTool: Tool = {
   name: 'grep',

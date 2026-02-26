@@ -3,8 +3,10 @@ import assert from 'node:assert'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import BetterSqlite3 from 'better-sqlite3'
 
 import { createMemoryService } from './service.ts'
+import { resolveMemoryDir } from './db.ts'
 
 describe('MemoryService', () => {
   let memoryDir: string
@@ -115,5 +117,60 @@ describe('MemoryService', () => {
     } finally {
       service.close()
     }
+  })
+
+  test('soft-deletes memories and excludes archived by default', async () => {
+    const service = createMemoryService({ memoryDir })
+    try {
+      const { memory } = await service.store({
+        content: 'Archive me.',
+        type: 'fact',
+      })
+
+      const archived = await service.deleteById(memory.id)
+      assert.equal(archived, true)
+
+      const defaultResults = await service.search({ query: 'Archive me' })
+      assert.equal(defaultResults.length, 0)
+
+      const archivedResults = await service.search({
+        query: 'Archive me',
+        includeArchived: true,
+      })
+      assert.equal(archivedResults.length, 1)
+      assert.ok(archivedResults[0].archivedAt)
+    } finally {
+      service.close()
+    }
+  })
+
+  test('purges archived memories older than retention window at startup', async () => {
+    const service = createMemoryService({ memoryDir, archiveRetentionDays: 14 })
+    const { memory } = await service.store({
+      content: 'Old archived memory',
+      type: 'fact',
+    })
+    await service.deleteById(memory.id)
+    service.close()
+
+    const db = new BetterSqlite3(path.join(memoryDir, 'memory.db'))
+    try {
+      db.prepare(`UPDATE memories SET archived_at = '2000-01-01 00:00:00' WHERE id = ?`).run(memory.id)
+    } finally {
+      db.close()
+    }
+
+    const reopened = createMemoryService({ memoryDir, archiveRetentionDays: 14 })
+    try {
+      const all = await reopened.exportAll()
+      assert.equal(all.length, 0)
+    } finally {
+      reopened.close()
+    }
+  })
+
+  test('falls back to default memory dir when configured dir is empty', () => {
+    const resolved = resolveMemoryDir('')
+    assert.ok(resolved.endsWith(path.join('.jarvis')))
   })
 })

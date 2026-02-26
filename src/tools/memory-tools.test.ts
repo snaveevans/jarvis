@@ -78,4 +78,36 @@ describe('memory tools', () => {
       service.close()
     }
   })
+
+  test('memory_delete archives and memory_search can include archived', async () => {
+    const service = createMemoryService({ memoryDir })
+    const tools = createMemoryTools(service)
+    const store = tools.find(tool => tool.name === 'memory_store')!
+    const search = tools.find(tool => tool.name === 'memory_search')!
+    const del = tools.find(tool => tool.name === 'memory_delete')!
+
+    try {
+      const created = await store.execute({
+        content: 'Archive candidate',
+        type: 'fact',
+      })
+      const idMatch = created.content.match(/ID: (\d+)/)
+      assert.ok(idMatch)
+
+      const deleteResult = await del.execute({ id: Number(idMatch![1]) })
+      assert.equal(deleteResult.error, undefined)
+      assert.match(deleteResult.content, /archived/)
+
+      const hidden = await search.execute({ query: 'Archive candidate' })
+      assert.match(hidden.content, /No memories found/)
+
+      const included = await search.execute({
+        query: 'Archive candidate',
+        includeArchived: true,
+      })
+      assert.match(included.content, /archived=true/)
+    } finally {
+      service.close()
+    }
+  })
 })

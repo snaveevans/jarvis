@@ -1,9 +1,9 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
 
 import type { Tool, ToolResult } from './types.ts'
-import { capOutput, markFileAsRead, resolveWorkspacePath } from './common.ts'
+import { capOutput, markFileAsRead, resolveWorkspacePath, parsePositiveEnvInt } from './common.ts'
 
-const DEFAULT_LIMIT = 2_000
+const DEFAULT_LIMIT = parsePositiveEnvInt('JARVIS_TOOLS_MAX_READ_LINES', 2_000)
 
 function parsePositiveInteger(value: unknown, fallback: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {

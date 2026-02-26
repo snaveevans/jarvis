@@ -2,6 +2,7 @@
   "llm": {
     "provider": "minimax",
     "defaultModel": "",
+    "defaultPrompt": "",
     "providers": {
       "synthetic": {
         "apiKey": "",
@@ -27,8 +28,16 @@
   "memory": {
     "enabled": true,
     "dir": "",
+    "archiveRetentionDays": 14,
     "summaryWindowMinutes": 30,
-    "autoSummarize": false
+    "autoSummarize": false,
+    "autoContextMaxResults": 5,
+    "autoContextMaxTokens": 500,
+    "searchMaxLimit": 20,
+    "searchDefaultLimit": 5,
+    "recentDefaultLimit": 10,
+    "minSummaryTokens": 200,
+    "tokenEstimationCharsPerToken": 4
   },
   "logging": {
     "level": "info",
@@ -39,6 +48,14 @@
     "shellPoolSize": 3
   },
   "tools": {
-    "maxParallel": 5
+    "maxParallel": 5,
+    "maxIterations": 5,
+    "maxOutputCharacters": 50000,
+    "maxOutputLines": 2000,
+    "maxLineLength": 2000,
+    "timeoutMs": 120000,
+    "maxGlobResults": 1000,
+    "maxGrepMatches": 1000,
+    "maxReadLines": 2000
   }
 }

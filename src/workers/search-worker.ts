@@ -3,17 +3,15 @@ import path from 'node:path'
 import { stat, readFile } from 'node:fs/promises'
 import fg from 'fast-glob'
 
+import { MAX_OUTPUT_CHARACTERS, MAX_OUTPUT_LINES, MAX_LINE_LENGTH, parsePositiveEnvInt } from '../tools/common.ts'
 import type { WorkerRequest, WorkerResponse } from './types.ts'
 
 if (!parentPort) {
   throw new Error('search-worker must be run as a worker thread')
 }
 
-const MAX_GLOB_RESULTS = 1_000
-const MAX_GREP_MATCHES = 1_000
-const MAX_OUTPUT_CHARACTERS = 50_000
-const MAX_OUTPUT_LINES = 2_000
-const MAX_LINE_LENGTH = 2_000
+const MAX_GLOB_RESULTS = parsePositiveEnvInt('JARVIS_TOOLS_MAX_GLOB_RESULTS', 1_000)
+const MAX_GREP_MATCHES = parsePositiveEnvInt('JARVIS_TOOLS_MAX_GREP_MATCHES', 1_000)
 
 function truncateLine(line: string): string {
   if (line.length <= MAX_LINE_LENGTH) return line

@@ -4,7 +4,7 @@ import type { Tool, ToolResult } from './types.ts'
 export function createMemoryDeleteTool(memoryService: MemoryService): Tool {
   return {
     name: 'memory_delete',
-    description: 'Delete a specific memory by its ID',
+    description: 'Archive a specific memory by its ID',
     parameters: {
       type: 'object',
       properties: {
@@ -22,12 +22,12 @@ export function createMemoryDeleteTool(memoryService: MemoryService): Tool {
       }
 
       try {
-        const deleted = await memoryService.deleteById(id)
-        if (!deleted) {
+        const archived = await memoryService.deleteById(id)
+        if (!archived) {
           return { content: '', error: `No memory found with ID ${id}` }
         }
 
-        return { content: `Memory #${id} deleted.` }
+        return { content: `Memory #${id} archived.` }
       } catch (error) {
         return {
           content: '',

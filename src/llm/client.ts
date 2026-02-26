@@ -16,7 +16,7 @@ import {
 import { inferProviderFromBaseUrl, stripThinkingContent } from './provider.ts'
 import type { LLMProvider } from './provider.ts'
 
-const BASE_URL = 'https://api.synthetic.new/openai/v1'
+const DEFAULT_BASE_URL = 'https://api.synthetic.new/openai/v1'
 
 export interface LLMClientConfig {
   apiKey?: string
@@ -41,7 +41,7 @@ export class LLMClient {
       )
     }
 
-    this.baseUrl = config.baseUrl ?? BASE_URL
+    this.baseUrl = config.baseUrl ?? process.env.JARVIS_BASE_URL ?? DEFAULT_BASE_URL
     this.provider = config.provider ?? inferProviderFromBaseUrl(this.baseUrl)
 
     this.client = new OpenAI({

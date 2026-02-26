@@ -4,6 +4,7 @@
     "apiKey": "LLM_API_KEY",
     "baseUrl": "LLM_BASE_URL",
     "defaultModel": "DEFAULT_MODEL",
+    "defaultPrompt": "JARVIS_DEFAULT_PROMPT",
     "providers": {
       "synthetic": {
         "apiKey": "SYNTHETIC_API_KEY",
@@ -28,11 +29,30 @@
   },
   "memory": {
     "dir": "JARVIS_MEMORY_DIR",
+    "archiveRetentionDays": "JARVIS_MEMORY_ARCHIVE_RETENTION_DAYS",
     "summaryWindowMinutes": "JARVIS_MEMORY_SUMMARY_WINDOW_MINUTES",
-    "autoSummarize": "JARVIS_AUTO_SUMMARIZE"
+    "autoSummarize": "JARVIS_AUTO_SUMMARIZE",
+    "autoContextMaxResults": "JARVIS_MEMORY_AUTO_CONTEXT_MAX_RESULTS",
+    "autoContextMaxTokens": "JARVIS_MEMORY_AUTO_CONTEXT_MAX_TOKENS",
+    "searchMaxLimit": "JARVIS_MEMORY_SEARCH_MAX_LIMIT",
+    "searchDefaultLimit": "JARVIS_MEMORY_SEARCH_DEFAULT_LIMIT",
+    "recentDefaultLimit": "JARVIS_MEMORY_RECENT_DEFAULT_LIMIT",
+    "minSummaryTokens": "JARVIS_MEMORY_MIN_SUMMARY_TOKENS",
+    "tokenEstimationCharsPerToken": "JARVIS_TOKEN_ESTIMATION_CHARS_PER_TOKEN"
   },
   "logging": {
     "level": "JARVIS_LOG_LEVEL",
     "file": "JARVIS_LOG_FILE"
+  },
+  "tools": {
+    "maxParallel": "JARVIS_TOOLS_MAX_PARALLEL",
+    "maxIterations": "JARVIS_TOOLS_MAX_ITERATIONS",
+    "maxOutputCharacters": "JARVIS_TOOLS_MAX_OUTPUT_CHARACTERS",
+    "maxOutputLines": "JARVIS_TOOLS_MAX_OUTPUT_LINES",
+    "maxLineLength": "JARVIS_TOOLS_MAX_LINE_LENGTH",
+    "timeoutMs": "JARVIS_TOOLS_TIMEOUT_MS",
+    "maxGlobResults": "JARVIS_TOOLS_MAX_GLOB_RESULTS",
+    "maxGrepMatches": "JARVIS_TOOLS_MAX_GREP_MATCHES",
+    "maxReadLines": "JARVIS_TOOLS_MAX_READ_LINES"
   }
 }

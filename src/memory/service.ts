@@ -48,6 +48,7 @@ export interface SummarizeAndStoreInput {
 
 export interface MemoryServiceConfig {
   memoryDir?: string
+  archiveRetentionDays?: number
   logger?: MemoryLogger
 }
 
@@ -74,6 +75,10 @@ export type SummarizeOutcome =
 
 export function createMemoryService(config: MemoryServiceConfig = {}): MemoryService {
   const logger = config.logger
+  const archiveRetentionDays = Number.isFinite(config.archiveRetentionDays) &&
+      (config.archiveRetentionDays as number) > 0
+    ? Math.floor(config.archiveRetentionDays as number)
+    : 14
   const handle = createMemoryDb(config.memoryDir)
   const { db, dbPath } = handle
 
@@ -82,19 +87,21 @@ export function createMemoryService(config: MemoryServiceConfig = {}): MemorySer
     VALUES (?, ?, ?, ?, ?)
   `)
   const selectByIdStmt = db.prepare(`
-    SELECT id, content, type, tags, source, created_at, token_count
+    SELECT id, content, type, tags, source, created_at, token_count, archived_at, archive_reason
     FROM memories
     WHERE id = ?
   `)
   const selectAllStmt = db.prepare(`
-    SELECT id, content, type, tags, source, created_at, token_count
+    SELECT id, content, type, tags, source, created_at, token_count, archived_at, archive_reason
     FROM memories
+    WHERE archived_at IS NULL
     ORDER BY created_at DESC
   `)
   const selectExactStmt = db.prepare(`
-    SELECT id, content, type, tags, source, created_at, token_count
+    SELECT id, content, type, tags, source, created_at, token_count, archived_at, archive_reason
     FROM memories
     WHERE lower(trim(content)) = lower(trim(?))
+      AND archived_at IS NULL
     LIMIT 1
   `)
 
@@ -127,15 +134,20 @@ export function createMemoryService(config: MemoryServiceConfig = {}): MemorySer
     return validated
   }
 
-  function getRecentSync(limit: number = RECENT_DEFAULT_LIMIT, type?: MemoryType): Memory[] {
+  function getRecentSync(
+    limit: number = RECENT_DEFAULT_LIMIT,
+    type?: MemoryType,
+    includeArchived: boolean = false
+  ): Memory[] {
     const boundedLimit = clampLimit(limit, RECENT_DEFAULT_LIMIT)
 
     if (type) {
       const validatedType = validateType(type)
       const rows = db.prepare(`
-        SELECT id, content, type, tags, source, created_at, token_count
+        SELECT id, content, type, tags, source, created_at, token_count, archived_at, archive_reason
         FROM memories
         WHERE type = ?
+        ${includeArchived ? '' : 'AND archived_at IS NULL'}
         ORDER BY created_at DESC
         LIMIT ?
       `).all(validatedType, boundedLimit) as MemoryRow[]
@@ -143,8 +155,9 @@ export function createMemoryService(config: MemoryServiceConfig = {}): MemorySer
     }
 
     const rows = db.prepare(`
-      SELECT id, content, type, tags, source, created_at, token_count
+      SELECT id, content, type, tags, source, created_at, token_count, archived_at, archive_reason
       FROM memories
+      ${includeArchived ? '' : 'WHERE archived_at IS NULL'}
       ORDER BY created_at DESC
       LIMIT ?
     `).all(boundedLimit) as MemoryRow[]
@@ -154,9 +167,10 @@ export function createMemoryService(config: MemoryServiceConfig = {}): MemorySer
   function searchSync(input: MemorySearchInput): MemorySearchResult[] {
     const query = input.query.trim()
     const limit = clampLimit(input.limit, SEARCH_DEFAULT_LIMIT)
+    const includeArchived = input.includeArchived === true
 
     if (!query) {
-      return getRecentSync(limit, input.type).map(memory => ({ ...memory, rank: 0 }))
+      return getRecentSync(limit, input.type, includeArchived).map(memory => ({ ...memory, rank: 0 }))
     }
     const ftsQuery = buildFtsQuery(query)
 
@@ -172,11 +186,14 @@ export function createMemoryService(config: MemoryServiceConfig = {}): MemorySer
         m.source,
         m.created_at,
         m.token_count,
+        m.archived_at,
+        m.archive_reason,
         bm25(memories_fts) AS rank
       FROM memories_fts
       JOIN memories m ON m.id = memories_fts.rowid
       WHERE memories_fts MATCH ?
       ${hasTypeFilter ? 'AND m.type = ?' : ''}
+      ${includeArchived ? '' : 'AND m.archived_at IS NULL'}
       ORDER BY rank ASC, m.created_at DESC
       LIMIT ?
     `
@@ -233,13 +250,29 @@ export function createMemoryService(config: MemoryServiceConfig = {}): MemorySer
   }
 
   function deleteByIdSync(id: number): boolean {
-    const result = db.prepare('DELETE FROM memories WHERE id = ?').run(id)
+    const result = db.prepare(`
+      UPDATE memories
+      SET archived_at = datetime('now')
+      WHERE id = ? AND archived_at IS NULL
+    `).run(id)
     return result.changes > 0
+  }
+
+  function purgeArchivedSync(): number {
+    const cutoffIso = new Date(Date.now() - archiveRetentionDays * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 19)
+      .replace('T', ' ')
+    const result = db.prepare(`
+      DELETE FROM memories
+      WHERE archived_at IS NOT NULL AND archived_at <= ?
+    `).run(cutoffIso)
+    return result.changes
   }
 
   function exportAllSync(): Memory[] {
     const rows = db.prepare(`
-      SELECT id, content, type, tags, source, created_at, token_count
+      SELECT id, content, type, tags, source, created_at, token_count, archived_at, archive_reason
       FROM memories
       ORDER BY created_at DESC
     `).all() as MemoryRow[]
@@ -250,6 +283,7 @@ export function createMemoryService(config: MemoryServiceConfig = {}): MemorySer
     const counts = db.prepare(`
       SELECT type, COUNT(*) AS count, COALESCE(SUM(token_count), 0) AS token_sum
       FROM memories
+      WHERE archived_at IS NULL
       GROUP BY type
     `).all() as Array<{ type: string, count: number, token_sum: number }>
 
@@ -402,6 +436,11 @@ export function createMemoryService(config: MemoryServiceConfig = {}): MemorySer
     })
 
     return storeResult.deduplicated ? 'deduplicated' : 'stored'
+  }
+
+  const purgedCount = purgeArchivedSync()
+  if (purgedCount > 0) {
+    logger?.info?.({ purgedCount, archiveRetentionDays }, 'Purged archived memories past retention')
   }
 
   return {

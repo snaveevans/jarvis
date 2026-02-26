@@ -1,10 +1,17 @@
 import path from 'node:path'
 import { access } from 'node:fs/promises'
 
-export const DEFAULT_TOOL_TIMEOUT_MS = 120_000
-export const MAX_OUTPUT_CHARACTERS = 50_000
-export const MAX_OUTPUT_LINES = 2_000
-export const MAX_LINE_LENGTH = 2_000
+export function parsePositiveEnvInt(name: string, fallback: number): number {
+  const v = process.env[name]
+  if (!v) return fallback
+  const n = parseInt(v, 10)
+  return n > 0 ? n : fallback
+}
+
+export const DEFAULT_TOOL_TIMEOUT_MS = parsePositiveEnvInt('JARVIS_TOOLS_TIMEOUT_MS', 120_000)
+export const MAX_OUTPUT_CHARACTERS = parsePositiveEnvInt('JARVIS_TOOLS_MAX_OUTPUT_CHARACTERS', 50_000)
+export const MAX_OUTPUT_LINES = parsePositiveEnvInt('JARVIS_TOOLS_MAX_OUTPUT_LINES', 2_000)
+export const MAX_LINE_LENGTH = parsePositiveEnvInt('JARVIS_TOOLS_MAX_LINE_LENGTH', 2_000)
 
 const WORKSPACE_ROOT = process.cwd()
 const readFiles = new Set<string>()

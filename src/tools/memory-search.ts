@@ -11,7 +11,8 @@ function formatMemoryLine(memory: Memory | MemorySearchResult): string {
   const createdAt = memory.createdAt.slice(0, 10)
   const rank = 'rank' in memory ? ` | rank=${memory.rank.toFixed(3)}` : ''
   const tags = memory.tags.length > 0 ? ` | tags=${memory.tags.join(',')}` : ''
-  return `- [id=${memory.id} | ${memory.type} | ${createdAt}${rank}${tags}] ${memory.content}`
+  const archived = memory.archivedAt ? ' | archived=true' : ''
+  return `- [id=${memory.id} | ${memory.type} | ${createdAt}${rank}${tags}${archived}] ${memory.content}`
 }
 
 export function createMemorySearchTool(memoryService: MemoryService): Tool {
@@ -34,6 +35,10 @@ export function createMemorySearchTool(memoryService: MemoryService): Tool {
           type: 'number',
           description: 'Optional result limit. Default 5, max 20.',
         },
+        includeArchived: {
+          type: 'boolean',
+          description: 'Include archived memories in search results. Default false.',
+        },
       },
       required: ['query'],
     },
@@ -52,12 +57,17 @@ export function createMemorySearchTool(memoryService: MemoryService): Tool {
       if (limitArg !== undefined && (typeof limitArg !== 'number' || !Number.isFinite(limitArg))) {
         return { content: '', error: 'limit must be a number when provided' }
       }
+      const includeArchivedArg = args.includeArchived
+      if (includeArchivedArg !== undefined && typeof includeArchivedArg !== 'boolean') {
+        return { content: '', error: 'includeArchived must be a boolean when provided' }
+      }
 
       try {
         const results = await memoryService.search({
           query,
           type: typeArg,
           limit: limitArg as number | undefined,
+          includeArchived: includeArchivedArg as boolean | undefined,
         })
 
         if (results.length === 0) {

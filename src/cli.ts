@@ -122,7 +122,10 @@ program
       })
 
       if (options.memory) {
-        memoryService = createMemoryService()
+        memoryService = createMemoryService({
+          memoryDir: config.memory.dir,
+          archiveRetentionDays: config.memory.archiveRetentionDays,
+        })
       }
 
       const messages: ChatMessage[] = []
@@ -271,7 +274,11 @@ memoryCommand
       process.exit(1)
     }
 
-    const memoryService = createMemoryService()
+    const config = await getConfig()
+    const memoryService = createMemoryService({
+      memoryDir: config.memory.dir,
+      archiveRetentionDays: config.memory.archiveRetentionDays,
+    })
     try {
       const results = await memoryService.search({
         query,
@@ -307,7 +314,11 @@ memoryCommand
       process.exit(1)
     }
 
-    const memoryService = createMemoryService()
+    const config = await getConfig()
+    const memoryService = createMemoryService({
+      memoryDir: config.memory.dir,
+      archiveRetentionDays: config.memory.archiveRetentionDays,
+    })
     try {
       const rows = await memoryService.getRecent(limit, options.type)
       if (rows.length === 0) {
@@ -325,7 +336,11 @@ memoryCommand
   .command('stats')
   .description('Show memory usage statistics')
   .action(async () => {
-    const memoryService = createMemoryService()
+    const config = await getConfig()
+    const memoryService = createMemoryService({
+      memoryDir: config.memory.dir,
+      archiveRetentionDays: config.memory.archiveRetentionDays,
+    })
     try {
       const stats = await memoryService.getStats()
       console.log(`DB: ${stats.dbPath}`)
@@ -361,7 +376,11 @@ memoryCommand
       }
     }
 
-    const memoryService = createMemoryService()
+    const config = await getConfig()
+    const memoryService = createMemoryService({
+      memoryDir: config.memory.dir,
+      archiveRetentionDays: config.memory.archiveRetentionDays,
+    })
     try {
       const deleted = await memoryService.clear(options.type)
       console.log(`Deleted ${deleted} memorie(s).`)
@@ -374,7 +393,11 @@ memoryCommand
   .command('export')
   .description('Export all memories as JSON')
   .action(async () => {
-    const memoryService = createMemoryService()
+    const config = await getConfig()
+    const memoryService = createMemoryService({
+      memoryDir: config.memory.dir,
+      archiveRetentionDays: config.memory.archiveRetentionDays,
+    })
     try {
       const rows = await memoryService.exportAll()
       console.log(JSON.stringify(rows, null, 2))
@@ -402,6 +425,7 @@ program
     let memoryService: ReturnType<typeof createMemoryService> | undefined
     let dispatcher: ReturnType<typeof createDispatcher> | undefined
     try {
+      const config = await getConfig()
       const model = options.model ?? config.llm.defaultModel
 
       if (!model) {
@@ -422,7 +446,11 @@ program
       const logger = createLogger(loggerConfig)
 
       if (options.memory) {
-        memoryService = createMemoryService({ logger })
+        memoryService = createMemoryService({
+          logger,
+          memoryDir: config.memory.dir,
+          archiveRetentionDays: config.memory.archiveRetentionDays,
+        })
       }
       const memoryTools = memoryService ? createMemoryTools(memoryService) : []
       const summaryWindowMinutes = parseSummaryWindowMinutes(
@@ -434,12 +462,14 @@ program
         sessionStore,
         model,
         providerName: config.llm.provider,
-        baseSystemPrompt: options.system,
+        baseSystemPrompt: options.system ?? (config.llm.defaultPrompt || undefined),
         logger: loggerConfig,
         extraTools: memoryTools,
         memoryService,
         summaryWindowMs: summaryWindowMinutes ? summaryWindowMinutes * 60_000 : undefined,
         autoSummarize: await resolveAutoSummarize(options.autoSummary),
+        maxToolIterations: config.tools.maxIterations,
+        maxParallelTools: config.tools.maxParallel,
       })
       dispatcher.registerEndpoint(cliEndpoint)
 
@@ -517,7 +547,11 @@ program
       const telegramLogger = createLogger(loggerConfig)
       logConfig(telegramLogger, config)
       if (options.memory) {
-        memoryService = createMemoryWorkerClient({ logger: telegramLogger, memoryDir: config.memory.dir })
+        memoryService = createMemoryWorkerClient({
+          logger: telegramLogger,
+          memoryDir: config.memory.dir,
+          archiveRetentionDays: config.memory.archiveRetentionDays,
+        })
       }
       const memoryTools = memoryService ? createMemoryTools(memoryService) : []
       const summaryWindowMinutes = parseSummaryWindowMinutes(
@@ -548,13 +582,15 @@ program
         sessionStore,
         model,
         providerName: config.llm.provider,
-        baseSystemPrompt: options.systemPrompt,
+        baseSystemPrompt: options.systemPrompt ?? (config.llm.defaultPrompt || undefined),
         logger: loggerConfig,
         extraTools: [...scheduleHandle.tools, ...memoryTools],
         skillRegistry,
         memoryService,
         summaryWindowMs: summaryWindowMinutes ? summaryWindowMinutes * 60_000 : undefined,
         autoSummarize: await resolveAutoSummarize(options.autoSummary),
+        maxToolIterations: config.tools.maxIterations,
+        maxParallelTools: config.tools.maxParallel,
         searchPool,
         shellPool,
       })
@@ -623,7 +659,11 @@ program
       const logger = createLogger(loggerConfig)
       logConfig(logger, config)
       if (options.memory) {
-        memoryService = createMemoryWorkerClient({ logger })
+        memoryService = createMemoryWorkerClient({
+          logger,
+          memoryDir: config.memory.dir,
+          archiveRetentionDays: config.memory.archiveRetentionDays,
+        })
       }
       const memoryTools = memoryService ? createMemoryTools(memoryService) : []
       const summaryWindowMinutes = parseSummaryWindowMinutes(
@@ -654,13 +694,15 @@ program
         sessionStore,
         model,
         providerName: config.llm.provider,
-        baseSystemPrompt: options.systemPrompt,
+        baseSystemPrompt: options.systemPrompt ?? (config.llm.defaultPrompt || undefined),
         logger: loggerConfig,
         extraTools: [...scheduleHandle.tools, ...memoryTools],
         skillRegistry,
         memoryService,
         summaryWindowMs: summaryWindowMinutes ? summaryWindowMinutes * 60_000 : undefined,
         autoSummarize: await resolveAutoSummarize(options.autoSummary),
+        maxToolIterations: config.tools.maxIterations,
+        maxParallelTools: config.tools.maxParallel,
         searchPool,
         shellPool,
       })

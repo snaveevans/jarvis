@@ -27,6 +27,8 @@ export interface DispatcherConfig {
   memoryService?: MemoryService
   summaryWindowMs?: number
   autoSummarize?: boolean
+  maxToolIterations?: number
+  maxParallelTools?: number
   searchPool?: ToolExecutionContext['searchPool']
   shellPool?: ToolExecutionContext['shellPool']
 }
@@ -300,6 +302,8 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
             model: config.model,
             ...mergedToolOptions,
             toolContext,
+            maxParallelTools: config.maxParallelTools,
+            maxIterations: config.maxToolIterations,
             onToolCall: (observation) => {
               hadToolCalls = true
               logger.info(
@@ -398,6 +402,8 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
             model: config.model,
             ...mergedToolOptions,
             toolContext,
+            maxParallelTools: config.maxParallelTools,
+            maxIterations: config.maxToolIterations,
             onToolCall: () => {
               hadToolCalls = true
             },

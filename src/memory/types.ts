@@ -10,6 +10,8 @@ export interface Memory {
   source?: string
   createdAt: string
   tokenCount: number
+  archivedAt?: string
+  archiveReason?: string
 }
 
 export interface MemorySearchResult extends Memory {
@@ -20,6 +22,7 @@ export interface MemorySearchInput {
   query: string
   type?: MemoryType
   limit?: number
+  includeArchived?: boolean
 }
 
 export interface MemoryStoreInput {

@@ -34,6 +34,7 @@ type MemoryLogger = {
 
 export interface MemoryWorkerClientConfig {
   memoryDir?: string
+  archiveRetentionDays?: number
   logger?: MemoryLogger
 }
 
@@ -46,7 +47,10 @@ export function createMemoryWorkerClient(config: MemoryWorkerClientConfig = {}):
   function spawnWorker(): Worker {
     const w = new Worker(WORKER_FILE, {
       execArgv: ['--experimental-strip-types'],
-      workerData: { memoryDir: config.memoryDir },
+      workerData: {
+        memoryDir: config.memoryDir,
+        archiveRetentionDays: config.archiveRetentionDays,
+      },
     })
 
     w.on('message', (response: WorkerResponse) => {

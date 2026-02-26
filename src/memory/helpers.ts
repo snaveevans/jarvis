@@ -5,12 +5,21 @@ import type {
   MemoryType,
 } from './types.ts'
 
-export const AUTO_CONTEXT_MAX_RESULTS = 5
-export const AUTO_CONTEXT_MAX_TOKENS = 500
-export const SEARCH_MAX_LIMIT = 20
-export const SEARCH_DEFAULT_LIMIT = 5
-export const RECENT_DEFAULT_LIMIT = 10
-export const MIN_SUMMARY_TOKENS = 200
+function parsePositiveEnvInt(name: string, fallback: number): number {
+  const v = process.env[name]
+  if (!v) return fallback
+  const n = parseInt(v, 10)
+  return n > 0 ? n : fallback
+}
+
+export const AUTO_CONTEXT_MAX_RESULTS = parsePositiveEnvInt('JARVIS_MEMORY_AUTO_CONTEXT_MAX_RESULTS', 5)
+export const AUTO_CONTEXT_MAX_TOKENS = parsePositiveEnvInt('JARVIS_MEMORY_AUTO_CONTEXT_MAX_TOKENS', 500)
+export const SEARCH_MAX_LIMIT = parsePositiveEnvInt('JARVIS_MEMORY_SEARCH_MAX_LIMIT', 20)
+export const SEARCH_DEFAULT_LIMIT = parsePositiveEnvInt('JARVIS_MEMORY_SEARCH_DEFAULT_LIMIT', 5)
+export const RECENT_DEFAULT_LIMIT = parsePositiveEnvInt('JARVIS_MEMORY_RECENT_DEFAULT_LIMIT', 10)
+export const MIN_SUMMARY_TOKENS = parsePositiveEnvInt('JARVIS_MEMORY_MIN_SUMMARY_TOKENS', 200)
+
+const TOKEN_ESTIMATION_CHARS_PER_TOKEN = parsePositiveEnvInt('JARVIS_TOKEN_ESTIMATION_CHARS_PER_TOKEN', 4)
 
 export interface MemoryRow {
   id: number
@@ -20,11 +29,13 @@ export interface MemoryRow {
   source: string | null
   created_at: string
   token_count: number
+  archived_at?: string | null
+  archive_reason?: string | null
   rank?: number
 }
 
 export function estimateTokenCount(text: string): number {
-  return Math.max(1, Math.ceil(text.length / 4))
+  return Math.max(1, Math.ceil(text.length / TOKEN_ESTIMATION_CHARS_PER_TOKEN))
 }
 
 export function normalizeContent(content: string): string {
@@ -56,6 +67,8 @@ export function toMemory(row: MemoryRow): Memory {
     source: row.source ?? undefined,
     createdAt: row.created_at,
     tokenCount: row.token_count,
+    archivedAt: row.archived_at ?? undefined,
+    archiveReason: row.archive_reason ?? undefined,
   }
 }
 

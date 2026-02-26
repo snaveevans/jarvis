@@ -50,13 +50,17 @@ describe('MemoryWorkerClient', () => {
     assert.equal(recent.length, 2)
   })
 
-  test('deleteById removes a memory', async () => {
+  test('deleteById archives a memory', async () => {
     const { memory } = await service.store({ content: 'To delete.', type: 'fact' })
     const deleted = await service.deleteById(memory.id)
     assert.equal(deleted, true)
 
     const results = await service.search({ query: 'To delete' })
     assert.equal(results.length, 0)
+
+    const archivedResults = await service.search({ query: 'To delete', includeArchived: true })
+    assert.equal(archivedResults.length, 1)
+    assert.ok(archivedResults[0].archivedAt)
   })
 
   test('clear removes all memories', async () => {

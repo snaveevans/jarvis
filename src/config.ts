@@ -18,11 +18,21 @@ const providerConfigSchema = z.object({
   defaultModel: z.string().default(''),
 })
 
+const numStr = (fallback: number) =>
+  z.union([z.number(), z.string()]).transform((val) => {
+    if (typeof val === 'string') {
+      const parsed = parseInt(val, 10)
+      return parsed > 0 ? parsed : fallback
+    }
+    return typeof val === 'number' && val > 0 ? val : fallback
+  }).default(fallback)
+
 const configSchema = z.object({
   llm: z.object({
     apiKey: z.string().default(''),
     defaultModel: z.string().default(''),
     baseUrl: z.string().default(''),
+    defaultPrompt: z.string().default(''),
     provider: z.enum(LLM_PROVIDERS).default('synthetic'),
     providers: z.object({
       synthetic: providerConfigSchema.default({}),
@@ -42,6 +52,13 @@ const configSchema = z.object({
   memory: z.object({
     enabled: z.boolean(),
     dir: z.string(),
+    archiveRetentionDays: z.union([z.number(), z.string()]).transform((val) => {
+      if (typeof val === 'string') {
+        const parsed = parseInt(val, 10)
+        return isNaN(parsed) ? 14 : parsed
+      }
+      return val
+    }).default(14),
     summaryWindowMinutes: z.union([z.number(), z.string()]).transform((val) => {
       if (typeof val === 'string') {
         const parsed = parseInt(val, 10)
@@ -55,6 +72,13 @@ const configSchema = z.object({
       }
       return val
     }),
+    autoContextMaxResults: numStr(5),
+    autoContextMaxTokens: numStr(500),
+    searchMaxLimit: numStr(20),
+    searchDefaultLimit: numStr(5),
+    recentDefaultLimit: numStr(10),
+    minSummaryTokens: numStr(200),
+    tokenEstimationCharsPerToken: numStr(4),
   }),
   logging: z.object({
     level: z.enum(['debug', 'info', 'warn', 'error', 'silent']),
@@ -65,7 +89,15 @@ const configSchema = z.object({
     shellPoolSize: z.number().default(3),
   }),
   tools: z.object({
-    maxParallel: z.number().default(5),
+    maxParallel: numStr(5),
+    maxIterations: numStr(5),
+    maxOutputCharacters: numStr(50_000),
+    maxOutputLines: numStr(2_000),
+    maxLineLength: numStr(2_000),
+    timeoutMs: numStr(120_000),
+    maxGlobResults: numStr(1_000),
+    maxGrepMatches: numStr(1_000),
+    maxReadLines: numStr(2_000),
   }),
 })
 
@@ -88,13 +120,31 @@ const envMapping: Record<string, string[]> = {
   LLM_API_KEY: ['llm', 'apiKey'],
   LLM_BASE_URL: ['llm', 'baseUrl'],
   LLM_PROVIDER: ['llm', 'provider'],
+  JARVIS_DEFAULT_PROMPT: ['llm', 'defaultPrompt'],
   TELEGRAM_BOT_TOKEN: ['telegram', 'botToken'],
   TELEGRAM_ALLOWED_USER_IDS: ['telegram', 'allowedUserIds'],
   JARVIS_MEMORY_DIR: ['memory', 'dir'],
+  JARVIS_MEMORY_ARCHIVE_RETENTION_DAYS: ['memory', 'archiveRetentionDays'],
   JARVIS_MEMORY_SUMMARY_WINDOW_MINUTES: ['memory', 'summaryWindowMinutes'],
   JARVIS_AUTO_SUMMARIZE: ['memory', 'autoSummarize'],
+  JARVIS_MEMORY_AUTO_CONTEXT_MAX_RESULTS: ['memory', 'autoContextMaxResults'],
+  JARVIS_MEMORY_AUTO_CONTEXT_MAX_TOKENS: ['memory', 'autoContextMaxTokens'],
+  JARVIS_MEMORY_SEARCH_MAX_LIMIT: ['memory', 'searchMaxLimit'],
+  JARVIS_MEMORY_SEARCH_DEFAULT_LIMIT: ['memory', 'searchDefaultLimit'],
+  JARVIS_MEMORY_RECENT_DEFAULT_LIMIT: ['memory', 'recentDefaultLimit'],
+  JARVIS_MEMORY_MIN_SUMMARY_TOKENS: ['memory', 'minSummaryTokens'],
+  JARVIS_TOKEN_ESTIMATION_CHARS_PER_TOKEN: ['memory', 'tokenEstimationCharsPerToken'],
   JARVIS_LOG_LEVEL: ['logging', 'level'],
   JARVIS_LOG_FILE: ['logging', 'file'],
+  JARVIS_TOOLS_MAX_PARALLEL: ['tools', 'maxParallel'],
+  JARVIS_TOOLS_MAX_ITERATIONS: ['tools', 'maxIterations'],
+  JARVIS_TOOLS_MAX_OUTPUT_CHARACTERS: ['tools', 'maxOutputCharacters'],
+  JARVIS_TOOLS_MAX_OUTPUT_LINES: ['tools', 'maxOutputLines'],
+  JARVIS_TOOLS_MAX_LINE_LENGTH: ['tools', 'maxLineLength'],
+  JARVIS_TOOLS_TIMEOUT_MS: ['tools', 'timeoutMs'],
+  JARVIS_TOOLS_MAX_GLOB_RESULTS: ['tools', 'maxGlobResults'],
+  JARVIS_TOOLS_MAX_GREP_MATCHES: ['tools', 'maxGrepMatches'],
+  JARVIS_TOOLS_MAX_READ_LINES: ['tools', 'maxReadLines'],
 }
 
 let cachedConfig: JarvisConfig | null = null
@@ -231,8 +281,16 @@ export function logConfig(logger: { info: (obj: Record<string, unknown>, msg: st
     memory: {
       enabled: config.memory.enabled,
       dir: config.memory.dir || '(default)',
+      archiveRetentionDays: config.memory.archiveRetentionDays,
       summaryWindowMinutes: config.memory.summaryWindowMinutes,
       autoSummarize: config.memory.autoSummarize,
+      autoContextMaxResults: config.memory.autoContextMaxResults,
+      autoContextMaxTokens: config.memory.autoContextMaxTokens,
+      searchMaxLimit: config.memory.searchMaxLimit,
+      searchDefaultLimit: config.memory.searchDefaultLimit,
+      recentDefaultLimit: config.memory.recentDefaultLimit,
+      minSummaryTokens: config.memory.minSummaryTokens,
+      tokenEstimationCharsPerToken: config.memory.tokenEstimationCharsPerToken,
     },
     logging: {
       level: config.logging.level,
@@ -244,6 +302,14 @@ export function logConfig(logger: { info: (obj: Record<string, unknown>, msg: st
     },
     tools: {
       maxParallel: config.tools.maxParallel,
+      maxIterations: config.tools.maxIterations,
+      maxOutputCharacters: config.tools.maxOutputCharacters,
+      maxOutputLines: config.tools.maxOutputLines,
+      maxLineLength: config.tools.maxLineLength,
+      timeoutMs: config.tools.timeoutMs,
+      maxGlobResults: config.tools.maxGlobResults,
+      maxGrepMatches: config.tools.maxGrepMatches,
+      maxReadLines: config.tools.maxReadLines,
     },
   }
 

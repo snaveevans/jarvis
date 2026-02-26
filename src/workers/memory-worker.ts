@@ -28,7 +28,13 @@ if (!parentPort) {
   throw new Error('memory-worker must be run as a worker thread')
 }
 
-const { memoryDir } = workerData as { memoryDir?: string }
+const { memoryDir, archiveRetentionDays } = workerData as {
+  memoryDir?: string
+  archiveRetentionDays?: number
+}
+const retentionDays = Number.isFinite(archiveRetentionDays) && (archiveRetentionDays as number) > 0
+  ? Math.floor(archiveRetentionDays as number)
+  : 14
 const handle = createMemoryDb(memoryDir)
 const { db, dbPath } = handle
 
@@ -37,19 +43,21 @@ const insertStmt = db.prepare(`
   VALUES (?, ?, ?, ?, ?)
 `)
 const selectByIdStmt = db.prepare(`
-  SELECT id, content, type, tags, source, created_at, token_count
+  SELECT id, content, type, tags, source, created_at, token_count, archived_at, archive_reason
   FROM memories
   WHERE id = ?
 `)
 const selectAllStmt = db.prepare(`
-  SELECT id, content, type, tags, source, created_at, token_count
+  SELECT id, content, type, tags, source, created_at, token_count, archived_at, archive_reason
   FROM memories
+  WHERE archived_at IS NULL
   ORDER BY created_at DESC
 `)
 const selectExactStmt = db.prepare(`
-  SELECT id, content, type, tags, source, created_at, token_count
+  SELECT id, content, type, tags, source, created_at, token_count, archived_at, archive_reason
   FROM memories
   WHERE lower(trim(content)) = lower(trim(?))
+    AND archived_at IS NULL
   LIMIT 1
 `)
 
@@ -83,9 +91,14 @@ function handleSearch(params: Record<string, unknown>): unknown {
   const input = params as unknown as MemorySearchInput
   const query = input.query.trim()
   const limit = clampLimit(input.limit, SEARCH_DEFAULT_LIMIT)
+  const includeArchived = input.includeArchived === true
 
   if (!query) {
-    return (handleGetRecent({ limit, type: input.type }) as Array<Record<string, unknown>>).map(
+    return (handleGetRecent({
+      limit,
+      type: input.type,
+      includeArchived,
+    }) as Array<Record<string, unknown>>).map(
       (memory) => ({ ...memory, rank: 0 })
     )
   }
@@ -96,12 +109,13 @@ function handleSearch(params: Record<string, unknown>): unknown {
 
   const sql = `
     SELECT
-      m.id, m.content, m.type, m.tags, m.source, m.created_at, m.token_count,
+      m.id, m.content, m.type, m.tags, m.source, m.created_at, m.token_count, m.archived_at, m.archive_reason,
       bm25(memories_fts) AS rank
     FROM memories_fts
     JOIN memories m ON m.id = memories_fts.rowid
     WHERE memories_fts MATCH ?
     ${hasTypeFilter ? 'AND m.type = ?' : ''}
+    ${includeArchived ? '' : 'AND m.archived_at IS NULL'}
     ORDER BY rank ASC, m.created_at DESC
     LIMIT ?
   `
@@ -116,21 +130,25 @@ function handleSearch(params: Record<string, unknown>): unknown {
 function handleGetRecent(params: Record<string, unknown>): unknown[] {
   const limit = params.limit as number | undefined
   const type = params.type as MemoryType | undefined
+  const includeArchived = params.includeArchived === true
   const boundedLimit = clampLimit(limit, RECENT_DEFAULT_LIMIT)
 
   if (type) {
     const validatedType = validateType(type)
     const rows = db.prepare(`
-      SELECT id, content, type, tags, source, created_at, token_count
+      SELECT id, content, type, tags, source, created_at, token_count, archived_at, archive_reason
       FROM memories WHERE type = ?
+      ${includeArchived ? '' : 'AND archived_at IS NULL'}
       ORDER BY created_at DESC LIMIT ?
     `).all(validatedType, boundedLimit) as MemoryRow[]
     return rows.map(toMemory)
   }
 
   const rows = db.prepare(`
-    SELECT id, content, type, tags, source, created_at, token_count
-    FROM memories ORDER BY created_at DESC LIMIT ?
+    SELECT id, content, type, tags, source, created_at, token_count, archived_at, archive_reason
+    FROM memories
+    ${includeArchived ? '' : 'WHERE archived_at IS NULL'}
+    ORDER BY created_at DESC LIMIT ?
   `).all(boundedLimit) as MemoryRow[]
   return rows.map(toMemory)
 }
@@ -170,7 +188,11 @@ function handleStore(params: Record<string, unknown>): unknown {
 
 function handleDeleteById(params: Record<string, unknown>): boolean {
   const id = params.id as number
-  const result = db.prepare('DELETE FROM memories WHERE id = ?').run(id)
+  const result = db.prepare(`
+    UPDATE memories
+    SET archived_at = datetime('now')
+    WHERE id = ? AND archived_at IS NULL
+  `).run(id)
   return result.changes > 0
 }
 
@@ -185,7 +207,7 @@ function handleClear(params: Record<string, unknown>): number {
 
 function handleExportAll(): unknown[] {
   const rows = db.prepare(`
-    SELECT id, content, type, tags, source, created_at, token_count
+    SELECT id, content, type, tags, source, created_at, token_count, archived_at, archive_reason
     FROM memories ORDER BY created_at DESC
   `).all() as MemoryRow[]
   return rows.map(toMemory)
@@ -194,7 +216,9 @@ function handleExportAll(): unknown[] {
 function handleGetStats(): unknown {
   const counts = db.prepare(`
     SELECT type, COUNT(*) AS count, COALESCE(SUM(token_count), 0) AS token_sum
-    FROM memories GROUP BY type
+    FROM memories
+    WHERE archived_at IS NULL
+    GROUP BY type
   `).all() as Array<{ type: string, count: number, token_sum: number }>
 
   const byType: Record<string, number> = {
@@ -270,6 +294,19 @@ const handlers: Record<string, (params: Record<string, unknown>) => unknown> = {
     return true
   },
 }
+
+function purgeArchived(): void {
+  const cutoffIso = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 19)
+    .replace('T', ' ')
+  db.prepare(`
+    DELETE FROM memories
+    WHERE archived_at IS NOT NULL AND archived_at <= ?
+  `).run(cutoffIso)
+}
+
+purgeArchived()
 
 parentPort.on('message', (request: WorkerRequest) => {
   const response: WorkerResponse = { requestId: request.requestId }

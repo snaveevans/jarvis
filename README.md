@@ -306,6 +306,7 @@ When the LLM requests multiple tools in a single response, they execute concurre
 | `DEFAULT_MODEL`                        | No                  | Global model override for active provider                         |
 | `TELEGRAM_BOT_TOKEN`                   | For Telegram        | Bot token from [@BotFather](https://t.me/BotFather)               |
 | `JARVIS_MEMORY_DIR`                    | No                  | Directory for memory database (default `~/.jarvis`)               |
+| `JARVIS_MEMORY_ARCHIVE_RETENTION_DAYS` | No                  | Days to retain archived memories before hard purge (default 14)   |
 | `JARVIS_MEMORY_SUMMARY_WINDOW_MINUTES` | No                  | Rolling auto-summary window (minutes) for dispatcher-backed flows |
 | `JARVIS_LOG_LEVEL`                     | No                  | Log level (`debug`, `info`, `warn`, `error`, `silent`)            |
 | `JARVIS_LOG_FILE`                      | No                  | Path to write logs to a file                                      |
