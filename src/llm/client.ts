@@ -75,16 +75,20 @@ export class LLMClient {
     options: Omit<ChatCompletionRequest, 'messages' | 'model'> & { model?: string } = {}
   ): Promise<ChatCompletionResponse> {
     try {
-      const response = await this.client.chat.completions.create({
+      const params: Record<string, unknown> = {
         model: options.model ?? this.defaultModel,
         messages: messages as OpenAI.Chat.ChatCompletionMessageParam[],
-        temperature: options.temperature,
-        max_tokens: options.max_tokens,
-        tools: options.tools,
-        tool_choice: options.tool_choice,
-        response_format: options.response_format,
         stream: false,
-      })
+      }
+      if (options.temperature !== undefined) params.temperature = options.temperature
+      if (options.max_tokens !== undefined) params.max_tokens = options.max_tokens
+      if (options.tools !== undefined) params.tools = options.tools
+      if (options.tool_choice !== undefined) params.tool_choice = options.tool_choice
+      if (options.response_format !== undefined) params.response_format = options.response_format
+
+      const response = await this.client.chat.completions.create(
+        params as Parameters<typeof this.client.chat.completions.create>[0]
+      )
 
       return response as unknown as ChatCompletionResponse
     } catch (error) {
@@ -97,16 +101,20 @@ export class LLMClient {
     options: Omit<ChatCompletionRequest, 'messages' | 'model' | 'stream'> & { model?: string } = {}
   ): AsyncGenerator<ChatCompletionChunk, void, unknown> {
     try {
-      const stream = await this.client.chat.completions.create({
+      const params: Record<string, unknown> = {
         model: options.model ?? this.defaultModel,
         messages: messages as OpenAI.Chat.ChatCompletionMessageParam[],
-        temperature: options.temperature,
-        max_tokens: options.max_tokens,
-        tools: options.tools,
-        tool_choice: options.tool_choice,
-        response_format: options.response_format,
         stream: true,
-      })
+      }
+      if (options.temperature !== undefined) params.temperature = options.temperature
+      if (options.max_tokens !== undefined) params.max_tokens = options.max_tokens
+      if (options.tools !== undefined) params.tools = options.tools
+      if (options.tool_choice !== undefined) params.tool_choice = options.tool_choice
+      if (options.response_format !== undefined) params.response_format = options.response_format
+
+      const stream = await this.client.chat.completions.create(
+        params as Parameters<typeof this.client.chat.completions.create>[0]
+      )
 
       for await (const chunk of stream) {
         yield chunk as unknown as ChatCompletionChunk

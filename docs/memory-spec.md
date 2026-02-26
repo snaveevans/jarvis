@@ -203,19 +203,22 @@ FTS5's BM25 ranking handles relevance scoring. Results are sorted by rank (best 
 
 After each completed memory-enabled interaction:
 
-1. Collect the full message array from the session.
+1. Build a rolling candidate set from the current session:
+   - include messages in the last **X minutes** (default 30)
+   - exclude message ranges already summarized (session watermark)
+   - skip if no new candidate messages remain
 2. Send a summarization prompt to the LLM in a separate, isolated call:
    ```
    Summarize this conversation in 2-4 sentences. Focus on decisions made,
    preferences expressed, and facts learned. Omit greetings and filler.
    ```
 3. Store the summary as type `conversation_summary` with `source` set to `"chat {ISO timestamp}"`.
-4. Skip summarization if the interaction was trivial. Current threshold:
-   - summarize if any tool call happened, OR
-   - summarize if total non-system message tokens are at least ~200.
+4. Store the summary as type `conversation_summary` with source metadata that includes
+   session and covered time range.
 
 **Safeguards**:
 - Summarization is a separate LLM call — it does not consume context from the main conversation.
+- If summarization finds no new unsummarized window content, it skips and logs why.
 - If the summarization call fails (rate limit, network error), log a warning and continue. Memory is best-effort, never blocking.
 - The summarization prompt is hardcoded and not user-configurable (prevents prompt injection into the memory layer).
 - On graceful shutdown (`SIGINT`/`SIGTERM`), Jarvis waits briefly for in-flight summary writes before exit (bounded timeout).
@@ -229,6 +232,10 @@ After each completed memory-enabled interaction:
 | Flag | Applies to | Effect |
 |---|---|---|
 | `--no-memory` | `chat`, `chat-with-tools`, `telegram`, `serve` | Disables memory retrieval/tools/summarization for that invocation |
+| `--memory-summary-window-minutes <n>` | `chat-with-tools`, `telegram`, `serve` | Sets rolling summarization window in minutes for that process |
+
+Environment override:
+- `JARVIS_MEMORY_SUMMARY_WINDOW_MINUTES` sets the same rolling window value when CLI flag is not provided.
 
 ### Subcommand: `jarvis memory`
 
@@ -269,6 +276,7 @@ src/tools/
 | Duplicate memories | Near-exact duplicate detection on store. |
 | Stale preferences | Preferences are not versioned. Duplicate/near-duplicate entries dedupe; changed preferences should be stored as new distinct memories. |
 | Noise in auto-retrieval | Retrieval is bounded by result count/token budget and query matching. If nothing matches, nothing is injected. |
+| Re-summarizing same content | Per-session summary watermark excludes already covered message ranges. |
 | Summarization failure | Best-effort. Failures are logged and swallowed — never block the main session. |
 | Data sovereignty | Everything is local. Single SQLite file. User can delete `~/.jarvis/memory.db` at any time. `jarvis memory clear` for in-app deletion. |
 | Prompt injection via stored memories | Memories are injected as user-attributed context, not as system instructions. The system prompt does not change based on memory content. |

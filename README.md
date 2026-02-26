@@ -156,6 +156,7 @@ Cancellation is session-scoped by default; use `cancel_scheduled_message(message
 
 Jarvis includes local durable memory backed by SQLite (`~/.jarvis/memory.db` by default). It uses bounded auto-retrieval to add relevant context without bloating prompts.
 Schema migration is automatic on first memory use; no manual migration command is required.
+Auto-summaries use a rolling session window (default 30 minutes) and avoid re-summarizing already covered message ranges.
 
 ```bash
 # Search/list/stats/export memory
@@ -167,6 +168,12 @@ jarvis memory export
 # Clear with confirmation (or bypass prompt for scripts)
 jarvis memory clear
 jarvis memory clear --type fact --yes
+
+# Configure rolling auto-summary window
+jarvis serve --memory-summary-window-minutes 45
+
+# Or via environment variable
+export JARVIS_MEMORY_SUMMARY_WINDOW_MINUTES=45
 ```
 
 ### List Models
@@ -241,6 +248,7 @@ src/
 | `DEFAULT_MODEL` | No | Default model (avoids `-m` flag every time) |
 | `TELEGRAM_BOT_TOKEN` | For Telegram | Bot token from [@BotFather](https://t.me/BotFather) |
 | `JARVIS_MEMORY_DIR` | No | Directory for memory database (default `~/.jarvis`) |
+| `JARVIS_MEMORY_SUMMARY_WINDOW_MINUTES` | No | Rolling auto-summary window (minutes) for dispatcher-backed flows |
 | `JARVIS_LOG_LEVEL` | No | Log level (`debug`, `info`, `warn`, `error`, `silent`) |
 | `JARVIS_LOG_FILE` | No | Path to write logs to a file |
 

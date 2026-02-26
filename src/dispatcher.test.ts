@@ -461,4 +461,67 @@ describe('createDispatcher', () => {
     assert.ok(observedMessages[0].content.includes('Relevant context from memory'))
     assert.ok(summarizeCalled)
   })
+
+  test('rolling summarization only includes unsummarized interaction messages', async () => {
+    const store = createInMemorySessionStore()
+    const endpoint = makeMockEndpoint()
+    const client = makeMockClient('ok')
+    const summarizedMessageCounts: number[] = []
+
+    const memoryService: MemoryService = {
+      dbPath: '/tmp/memory.db',
+      search: () => [],
+      getRecent: () => [],
+      store: () => ({ deduplicated: false, memory: {
+        id: 1,
+        content: '',
+        type: 'fact',
+        tags: [],
+        createdAt: new Date().toISOString(),
+        tokenCount: 1,
+      } }),
+      clear: () => 0,
+      exportAll: () => [],
+      getStats: () => ({
+        dbPath: '/tmp/memory.db',
+        dbSizeBytes: 0,
+        totalCount: 0,
+        totalTokenCount: 0,
+        byType: { preference: 0, fact: 0, conversation_summary: 0 },
+      }),
+      getAutoContext: () => undefined,
+      summarizeAndStore: async (input) => {
+        summarizedMessageCounts.push(input.messages.length)
+        return 'stored'
+      },
+      close: () => {},
+    }
+
+    const dispatcher = createDispatcher({
+      client,
+      sessionStore: store,
+      model: 'test-model',
+      logger: { level: 'silent' },
+      memoryService,
+      summaryWindowMs: 30 * 60 * 1000,
+    })
+    dispatcher.registerEndpoint(endpoint)
+
+    await dispatcher.handleInbound({
+      text: 'first message',
+      sessionId: 'test:rolling',
+      endpointKind: 'test',
+      timestamp: new Date(),
+    })
+
+    await dispatcher.handleInbound({
+      text: 'second message',
+      sessionId: 'test:rolling',
+      endpointKind: 'test',
+      timestamp: new Date(),
+    })
+
+    await dispatcher.flushMemoryWrites(1000)
+    assert.deepEqual(summarizedMessageCounts, [2, 2])
+  })
 })

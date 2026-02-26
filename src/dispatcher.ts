@@ -13,6 +13,7 @@ import type { SkillRegistry } from './skills/index.ts'
 
 const DEFAULT_BASE_PROMPT =
   'You are a helpful assistant with access to tools: read, glob, grep, edit, write, shell, ask_user, todo_list, web_fetch, sub_agent, and read_file. Prefer specialized tools over shell for file operations.'
+const DEFAULT_SUMMARY_WINDOW_MS = 30 * 60 * 1000
 
 export interface DispatcherConfig {
   client: ChatWithToolsClient
@@ -23,6 +24,8 @@ export interface DispatcherConfig {
   extraTools?: Tool[]
   skillRegistry?: SkillRegistry
   memoryService?: MemoryService
+  summaryWindowMs?: number
+  autoSummarize?: boolean
 }
 
 export interface Dispatcher {
@@ -61,6 +64,14 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
   const pendingMemoryWrites = new Set<Promise<void>>()
   let activeOperations = 0
   const idleResolvers = new Set<() => void>()
+  const summaryWindowMs = config.summaryWindowMs ?? DEFAULT_SUMMARY_WINDOW_MS
+  const autoSummarize = config.autoSummarize ?? true
+  const sessionSummaryWindows = new Map<string, Array<{
+    timestampMs: number
+    hadToolCalls: boolean
+    messages: ChatMessage[]
+  }>>()
+  const sessionLastSummarizedAt = new Map<string, number>()
 
   // Build merged tool definitions and executor if we have extra tools
   let mergedToolOptions: { tools?: ToolDefinition[], executeTool?: (call: ToolCall, ctx?: ToolExecutionContext) => Promise<ToolResult> } = {}
@@ -128,21 +139,69 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
   }
 
   function summarizeSession(
+    sessionId: string,
     messages: ChatMessage[],
     hadToolCalls: boolean,
-    source: string
+    timestampMs: number
   ): void {
-    if (!memoryService) {
+    if (!memoryService || !autoSummarize) {
       return
     }
 
-    const write = memoryService.summarizeAndStore({
-      client: config.client,
-      model: config.model,
-      messages,
-      hadToolCalls,
-      source,
-    })
+    const existing = sessionSummaryWindows.get(sessionId) ?? []
+    existing.push({ timestampMs, hadToolCalls, messages })
+    const cutoffMs = timestampMs - summaryWindowMs
+    const windowEntries = existing.filter(entry => entry.timestampMs >= cutoffMs)
+    sessionSummaryWindows.set(sessionId, windowEntries)
+
+    const lastSummarizedAt = sessionLastSummarizedAt.get(sessionId) ?? 0
+    const unsummarizedEntries = windowEntries.filter(entry => entry.timestampMs > lastSummarizedAt)
+
+    if (unsummarizedEntries.length === 0) {
+      logger.info(
+        { sessionId, windowMinutes: Math.round(summaryWindowMs / 60000), reason: 'no_new_messages' },
+        'Auto-memory summarize skipped'
+      )
+      return
+    }
+
+    const candidateMessages = unsummarizedEntries.flatMap(entry => entry.messages)
+    const candidateHadToolCalls = unsummarizedEntries.some(entry => entry.hadToolCalls)
+    const rangeStartMs = unsummarizedEntries[0].timestampMs
+    const rangeEndMs = unsummarizedEntries[unsummarizedEntries.length - 1].timestampMs
+    const source = `${sessionId} window ${new Date(rangeStartMs).toISOString()}..${new Date(rangeEndMs).toISOString()}`
+
+    logger.info(
+      {
+        sessionId,
+        source,
+        hadToolCalls: candidateHadToolCalls,
+        messageCount: candidateMessages.length,
+        windowMinutes: Math.round(summaryWindowMs / 60000),
+      },
+      'Auto-memory summarize queued'
+    )
+
+    const write = (async () => {
+      const outcome = await memoryService.summarizeAndStore({
+        client: config.client,
+        model: config.model,
+        messages: candidateMessages,
+        hadToolCalls: candidateHadToolCalls,
+        source,
+        force: true,
+      })
+
+      logger.info(
+        { sessionId, source, outcome, coveredMessages: candidateMessages.length },
+        'Auto-memory summarize window outcome'
+      )
+
+      if (outcome === 'stored' || outcome === 'deduplicated') {
+        sessionLastSummarizedAt.set(sessionId, rangeEndMs)
+      }
+    })()
+
     pendingMemoryWrites.add(write)
     void write.finally(() => {
       pendingMemoryWrites.delete(write)
@@ -197,6 +256,7 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
         }
 
         // Add user message
+        const interactionStart = session.messages.length
         config.sessionStore.addMessage(session.id, { role: 'user', content: message.text })
 
         const toolContext = { sessionId: message.sessionId, endpointKind: message.endpointKind }
@@ -245,10 +305,12 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
             endpointKind: message.endpointKind,
           })
 
+          const interactionMessages = session.messages.slice(interactionStart)
           summarizeSession(
-            session.messages,
+            session.id,
+            interactionMessages,
             hadToolCalls,
-            `${message.endpointKind} ${message.timestamp.toISOString()}`
+            message.timestamp.getTime()
           )
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error)
@@ -286,6 +348,7 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
         }
 
         // Add the proactive message as a user message
+        const interactionStart = session.messages.length
         config.sessionStore.addMessage(session.id, { role: 'user', content: params.text })
 
         const toolContext = { sessionId: params.sessionId, endpointKind: params.endpointKind }
@@ -316,10 +379,12 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
             endpointKind: params.endpointKind,
           })
 
+          const interactionMessages = session.messages.slice(interactionStart)
           summarizeSession(
-            session.messages,
+            session.id,
+            interactionMessages,
             hadToolCalls,
-            `${params.endpointKind} ${new Date().toISOString()}`
+            Date.now()
           )
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error)

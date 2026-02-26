@@ -61,6 +61,25 @@ function formatMemoryRows(rows: Array<{
   }).join('\n\n')
 }
 
+function parseSummaryWindowMinutes(value: unknown): number | undefined {
+  if (typeof value !== 'string' || !value.trim()) {
+    return undefined
+  }
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    console.error('Error: memory summary window must be a positive number of minutes.')
+    process.exit(1)
+  }
+  return parsed
+}
+
+function resolveAutoSummarize(cliFlag: boolean): boolean {
+  if (!cliFlag) return false
+  const env = process.env.JARVIS_AUTO_SUMMARIZE
+  if (env !== undefined) return env !== '0' && env.toLowerCase() !== 'false'
+  return true
+}
+
 const program = new Command()
 
 program
@@ -357,6 +376,8 @@ program
   .option('--log-level <level>', 'Log level for tool-call logs', process.env.JARVIS_LOG_LEVEL ?? 'info')
   .option('--log-file <path>', 'Also write tool-call logs to a file')
   .option('--no-memory', 'Disable memory features for this invocation')
+  .option('--no-auto-summary', 'Disable auto-summarization of conversations')
+  .option('--memory-summary-window-minutes <minutes>', 'Rolling summary window in minutes')
   .action(async (message, options) => {
     let memoryService: ReturnType<typeof createMemoryService> | undefined
     let dispatcher: ReturnType<typeof createDispatcher> | undefined
@@ -379,6 +400,9 @@ program
         memoryService = createMemoryService({ logger })
       }
       const memoryTools = memoryService ? createMemoryTools(memoryService) : []
+      const summaryWindowMinutes = parseSummaryWindowMinutes(
+        options.memorySummaryWindowMinutes ?? process.env.JARVIS_MEMORY_SUMMARY_WINDOW_MINUTES
+      )
 
       dispatcher = createDispatcher({
         client,
@@ -388,6 +412,8 @@ program
         logger: loggerConfig,
         extraTools: memoryTools,
         memoryService,
+        summaryWindowMs: summaryWindowMinutes ? summaryWindowMinutes * 60_000 : undefined,
+        autoSummarize: resolveAutoSummarize(options.autoSummary),
       })
       dispatcher.registerEndpoint(cliEndpoint)
 
@@ -425,6 +451,8 @@ program
   .option('--log-level <level>', 'Log level', process.env.JARVIS_LOG_LEVEL ?? 'info')
   .option('--log-file <path>', 'Also write logs to a file')
   .option('--no-memory', 'Disable memory features for this invocation')
+  .option('--no-auto-summary', 'Disable auto-summarization of conversations')
+  .option('--memory-summary-window-minutes <minutes>', 'Rolling summary window in minutes')
   .action(async (options) => {
     let memoryService: ReturnType<typeof createMemoryService> | undefined
     try {
@@ -458,6 +486,9 @@ program
         memoryService = createMemoryService({ logger: telegramLogger })
       }
       const memoryTools = memoryService ? createMemoryTools(memoryService) : []
+      const summaryWindowMinutes = parseSummaryWindowMinutes(
+        options.memorySummaryWindowMinutes ?? process.env.JARVIS_MEMORY_SUMMARY_WINDOW_MINUTES
+      )
 
       const skillRegistry = createSkillRegistry()
       skillRegistry.register({
@@ -484,6 +515,8 @@ program
         extraTools: [...scheduleHandle.tools, ...memoryTools],
         skillRegistry,
         memoryService,
+        summaryWindowMs: summaryWindowMinutes ? summaryWindowMinutes * 60_000 : undefined,
+        autoSummarize: resolveAutoSummarize(options.autoSummary),
       })
       dispatcherRef = dispatcher
       dispatcher.registerEndpoint(telegramEndpoint)
@@ -523,6 +556,8 @@ program
   .option('--log-file <path>', 'Also write logs to a file')
   .option('--cron <tasks>', 'Cron tasks as JSON array: [{"name","intervalMs","targetSessionId","targetEndpointKind","prompt"}]')
   .option('--no-memory', 'Disable memory features for this invocation')
+  .option('--no-auto-summary', 'Disable auto-summarization of conversations')
+  .option('--memory-summary-window-minutes <minutes>', 'Rolling summary window in minutes')
   .action(async (options) => {
     let memoryService: ReturnType<typeof createMemoryService> | undefined
     try {
@@ -541,6 +576,9 @@ program
         memoryService = createMemoryService({ logger })
       }
       const memoryTools = memoryService ? createMemoryTools(memoryService) : []
+      const summaryWindowMinutes = parseSummaryWindowMinutes(
+        options.memorySummaryWindowMinutes ?? process.env.JARVIS_MEMORY_SUMMARY_WINDOW_MINUTES
+      )
 
       const skillRegistry = createSkillRegistry()
       skillRegistry.register({
@@ -567,6 +605,8 @@ program
         extraTools: [...scheduleHandle.tools, ...memoryTools],
         skillRegistry,
         memoryService,
+        summaryWindowMs: summaryWindowMinutes ? summaryWindowMinutes * 60_000 : undefined,
+        autoSummarize: resolveAutoSummarize(options.autoSummary),
       })
       dispatcherRef = dispatcher
 

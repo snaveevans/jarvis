@@ -11,7 +11,7 @@ function formatMemoryLine(memory: Memory | MemorySearchResult): string {
   const createdAt = memory.createdAt.slice(0, 10)
   const rank = 'rank' in memory ? ` | rank=${memory.rank.toFixed(3)}` : ''
   const tags = memory.tags.length > 0 ? ` | tags=${memory.tags.join(',')}` : ''
-  return `- [${memory.type} | ${createdAt}${rank}${tags}] ${memory.content}`
+  return `- [id=${memory.id} | ${memory.type} | ${createdAt}${rank}${tags}] ${memory.content}`
 }
 
 export function createMemorySearchTool(memoryService: MemoryService): Tool {

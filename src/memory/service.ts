@@ -45,6 +45,7 @@ export interface SummarizeAndStoreInput {
   messages: ChatMessage[]
   hadToolCalls?: boolean
   source?: string
+  force?: boolean
 }
 
 export interface MemoryServiceConfig {
@@ -57,13 +58,21 @@ export interface MemoryService {
   search(input: MemorySearchInput): MemorySearchResult[]
   getRecent(limit?: number, type?: MemoryType): Memory[]
   store(input: MemoryStoreInput): MemoryStoreResult
+  deleteById(id: number): boolean
   clear(type?: MemoryType): number
   exportAll(): Memory[]
   getStats(): MemoryStats
   getAutoContext(query: string): string | undefined
-  summarizeAndStore(input: SummarizeAndStoreInput): Promise<void>
+  summarizeAndStore(input: SummarizeAndStoreInput): Promise<SummarizeOutcome>
   close(): void
 }
+
+export type SummarizeOutcome =
+  | 'skipped_trivial'
+  | 'empty_summary'
+  | 'stored'
+  | 'deduplicated'
+  | 'failed'
 
 function estimateTokenCount(text: string): number {
   return Math.max(1, Math.ceil(text.length / 4))
@@ -309,6 +318,11 @@ export function createMemoryService(config: MemoryServiceConfig = {}): MemorySer
     return result.changes
   }
 
+  function deleteById(id: number): boolean {
+    const result = db.prepare('DELETE FROM memories WHERE id = ?').run(id)
+    return result.changes > 0
+  }
+
   function exportAll(): Memory[] {
     const rows = db.prepare(`
       SELECT id, content, type, tags, source, created_at, token_count
@@ -386,10 +400,15 @@ export function createMemoryService(config: MemoryServiceConfig = {}): MemorySer
     return `Relevant context from memory:\n${lines.join('\n')}`
   }
 
-  async function summarizeAndStore(input: SummarizeAndStoreInput): Promise<void> {
+  async function summarizeAndStore(input: SummarizeAndStoreInput): Promise<SummarizeOutcome> {
     const hadToolCalls = input.hadToolCalls ?? false
-    if (!shouldSummarize(input.messages, hadToolCalls)) {
-      return
+    if (!input.force && !shouldSummarize(input.messages, hadToolCalls)) {
+      return 'skipped_trivial'
+    }
+
+    const nonSystemMessages = input.messages.filter(m => m.role !== 'system')
+    if (nonSystemMessages.length === 0) {
+      return 'skipped_trivial'
     }
 
     const transcript = input.messages
@@ -397,39 +416,78 @@ export function createMemoryService(config: MemoryServiceConfig = {}): MemorySer
       .join('\n')
       .slice(0, 12_000)
 
-    const summaryResponse = await input.client.chat(
-      [
-        {
-          role: 'system',
-          content: [
-            'Summarize this conversation in 2-4 sentences.',
-            'Focus on decisions made, preferences expressed, and facts learned.',
-            'Omit greetings and filler.',
-          ].join(' '),
-        },
-        {
-          role: 'user',
-          content: transcript,
-        },
-      ],
-      {
-        model: input.model,
-        temperature: 0.2,
-        max_tokens: 220,
-      }
+    logger?.info?.(
+      { transcriptLength: transcript.length, messageCount: input.messages.length },
+      'Auto-memory summarize sending transcript to LLM'
     )
 
-    const summary = summaryResponse.choices[0]?.message?.content?.trim()
-    if (!summary) {
-      return
+    let summary: string | undefined
+
+    try {
+      const summaryResponse = await input.client.chat(
+        [
+          {
+            role: 'system',
+            content: [
+              'You are a conversation summarizer.',
+              'Summarize the following conversation transcript in 2-4 sentences.',
+              'Focus on: decisions made, preferences expressed, facts learned, and key topics discussed.',
+              'Always produce a summary even if the conversation is short or casual.',
+              'Never return an empty response.',
+            ].join(' '),
+          },
+          {
+            role: 'user',
+            content: transcript,
+          },
+        ],
+        {
+          model: input.model,
+          temperature: 0.3,
+          max_tokens: 220,
+        }
+      )
+
+      const choice = summaryResponse.choices[0]
+      const rawContent = choice?.message?.content
+      summary = rawContent?.trim()
+
+      logger?.info?.(
+        {
+          hasChoices: summaryResponse.choices.length > 0,
+          finishReason: choice?.finish_reason,
+          rawContentType: typeof rawContent,
+          rawContentLength: rawContent?.length ?? 0,
+          hasToolCalls: !!(choice?.message as Record<string, unknown>)?.tool_calls,
+          summaryEmpty: !summary,
+        },
+        'Auto-memory LLM summary response details'
+      )
+    } catch (error) {
+      logger?.warn?.(
+        { error: error instanceof Error ? error.message : String(error) },
+        'LLM summary call failed, falling back to local extract'
+      )
     }
 
-    store({
+    // Local fallback: extract key user/assistant content if LLM returned nothing
+    if (!summary) {
+      const excerpts = nonSystemMessages
+        .map(m => `${m.role}: ${m.content.slice(0, 200)}`)
+        .join(' | ')
+        .slice(0, 500)
+      summary = `Conversation excerpt: ${excerpts}`
+      logger?.info?.({}, 'Using local fallback summary (LLM returned empty)')
+    }
+
+    const storeResult = store({
       content: summary,
       type: 'conversation_summary',
       source: input.source ?? `chat ${new Date().toISOString()}`,
       tags: [],
     })
+
+    return storeResult.deduplicated ? 'deduplicated' : 'stored'
   }
 
   return {
@@ -437,18 +495,36 @@ export function createMemoryService(config: MemoryServiceConfig = {}): MemorySer
     search,
     getRecent,
     store,
+    deleteById,
     clear,
     exportAll,
     getStats,
     getAutoContext,
-    async summarizeAndStore(input: SummarizeAndStoreInput): Promise<void> {
+    async summarizeAndStore(input: SummarizeAndStoreInput): Promise<SummarizeOutcome> {
+      const startedAt = Date.now()
       try {
-        await summarizeAndStore(input)
+        const outcome = await summarizeAndStore(input)
+        logger?.info?.(
+          {
+            source: input.source,
+            hadToolCalls: input.hadToolCalls ?? false,
+            outcome,
+            durationMs: Date.now() - startedAt,
+          },
+          'Auto-memory summarize completed'
+        )
+        return outcome
       } catch (error) {
         logger?.warn?.(
-          { error: error instanceof Error ? error.message : String(error) },
+          {
+            source: input.source,
+            hadToolCalls: input.hadToolCalls ?? false,
+            error: error instanceof Error ? error.message : String(error),
+            durationMs: Date.now() - startedAt,
+          },
           'Failed to summarize and store memory'
         )
+        return 'failed'
       }
     },
     close: () => handle.close(),
