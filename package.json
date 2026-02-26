@@ -14,6 +14,7 @@
     "doc": "docs"
   },
   "scripts": {
+    "dev": "NODE_ENV=development node --experimental-strip-types src/cli.ts",
     "test": "node --experimental-strip-types --test src/**/*.test.ts",
     "setup": "node -e \"const fs=require('fs'); if(!fs.existsSync('.env')){fs.copyFileSync('.env.example','.env');console.log('Created .env from .env.example — edit it to add your API key.');}else{console.log('.env already exists, skipping.');}\"",
     "postinstall": "node -e \"const fs=require('fs'); if(!fs.existsSync('.env')&&fs.existsSync('.env.example')){fs.copyFileSync('.env.example','.env');console.log('\\nCreated .env from .env.example — edit it to add your API key.\\n');}\""

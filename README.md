@@ -19,13 +19,29 @@ Jarvis is being built **incrementally and deliberately**. This is not a code kno
 
 ## Getting Started
 
+### Development (with .env file)
+
 ```bash
 git clone <repo-url>
 cd jarvis
 npm install        # installs deps and creates .env from .env.example
-# edit .env — add your SYNTHETIC_API_KEY (or other provider key)
+# edit .env — add your API keys
+npm run dev chat "Hello!"
+npm run dev list-models
+```
+
+### Production (with environment variables)
+
+```bash
+npm install
 npm link           # installs jarvis as a global CLI command
+
+# Set environment variables directly
+export SYNTHETIC_API_KEY=your-key-here
+export DEFAULT_MODEL=hf:nvidia/Kimi-K2.5-NVFP4
+
 jarvis list-models # verify setup
+jarvis serve       # run in production mode
 ```
 
 → **See [INSTALL.md](./INSTALL.md) for the full step-by-step installation guide**, including provider setup, Telegram bot configuration, running as a background service, and troubleshooting.
@@ -34,26 +50,52 @@ jarvis list-models # verify setup
 
 ### CLI Chat
 
+**Development mode** (loads `.env` file):
+
 ```bash
 # Simple chat
-jarvis chat "What is the capital of France?"
+npm run dev chat "What is the capital of France?"
 
 # Stream the response
-jarvis chat "Explain quantum computing" --stream
+npm run dev chat "Explain quantum computing" -- --stream
 
 # Specify model and temperature
-jarvis chat "Hello" -m "hf:model-name" -t 0.9
+npm run dev chat "Hello" -- -m "hf:model-name" -t 0.9
 
 # Read prompt from a file
-jarvis chat --file ./prompt.txt
+npm run dev chat -- --file ./prompt.txt
 
 # Disable memory for one invocation
-jarvis chat "Quick question" --no-memory
+npm run dev chat "Quick question" -- --no-memory
+```
+
+**Production mode** (uses environment variables):
+
+```bash
+# Set environment variables first
+export SYNTHETIC_API_KEY=your-key-here
+export DEFAULT_MODEL=hf:nvidia/Kimi-K2.5-NVFP4
+
+# Then use jarvis command directly
+jarvis chat "What is the capital of France?"
+jarvis chat "Explain quantum computing" --stream
+jarvis chat "Hello" -m "hf:model-name" -t 0.9
 ```
 
 ### Chat with Tools
 
 Chat with tool calling enabled — Jarvis can read files, search code, run shell commands, and more.
+
+**Development mode**:
+
+```bash
+npm run dev chat-with-tools "Read README.md and summarize it"
+npm run dev chat-with-tools "What does package.json contain?"
+npm run dev chat-with-tools -- --file ./prompt.txt
+npm run dev chat-with-tools "Debug this" -- --no-memory
+```
+
+**Production mode**:
 
 ```bash
 jarvis chat-with-tools "Read README.md and summarize it"
@@ -71,22 +113,39 @@ Jarvis can run as a Telegram bot using long-polling — no public URL or server 
 **Setup:**
 
 1. Message [@BotFather](https://t.me/BotFather) on Telegram and create a new bot
-2. Copy the bot token and add it to your `.env`:
+2. Copy the bot token and either:
+   - **Development**: Add it to your `.env` file
+   - **Production**: Set as environment variable
 
-   ```
+   ```bash
+   # Development (.env file)
    TELEGRAM_BOT_TOKEN=your-token-here
+   
+   # Production (environment variable)
+   export TELEGRAM_BOT_TOKEN=your-token-here
    ```
 
 3. Start the bot:
 
    ```bash
+   # Development
+   npm run dev telegram
+   
+   # Production
    jarvis telegram
    ```
 
 **Options:**
 
 ```bash
-jarvis telegram                          # uses DEFAULT_MODEL from .env
+# Development
+npm run dev telegram                              # uses DEFAULT_MODEL from .env
+npm run dev telegram -- -m "hf:model-name"        # specify model
+npm run dev telegram -- -s "You are a pirate"     # custom system prompt
+npm run dev telegram -- --log-file ./bot.log      # write logs to file
+
+# Production
+jarvis telegram                          # uses DEFAULT_MODEL from environment
 jarvis telegram -m "hf:model-name"       # specify model
 jarvis telegram -s "You are a pirate"    # custom system prompt
 jarvis telegram --log-file ./bot.log     # write logs to file
@@ -104,10 +163,16 @@ The bot maintains per-chat conversation history in memory (resets on restart). L
 Run Jarvis as a long-running service with all endpoints and optional scheduled tasks.
 
 ```bash
-# Start with Telegram (token must be in .env)
-jarvis serve -m "hf:model-name"
+# Development (.env loaded)
+npm run dev serve -- -m "hf:model-name"
 
-# Start with cron tasks
+# Production (environment variables)
+export SYNTHETIC_API_KEY=your-key-here
+export DEFAULT_MODEL=hf:model-name
+export TELEGRAM_BOT_TOKEN=your-token-here
+jarvis serve
+
+# With cron tasks
 jarvis serve -m "hf:model-name" --cron '[
   {
     "name": "daily-checkin",
@@ -121,7 +186,7 @@ jarvis serve -m "hf:model-name" --cron '[
 
 Serve mode automatically registers any available endpoints (Telegram if `TELEGRAM_BOT_TOKEN` is set), initializes all skills (reminder, etc.), and starts cron tasks. Ctrl+C for graceful shutdown.
 
-**Finding your Telegram chat ID:** Send any message to the bot running in `jarvis telegram` mode and check the logs for the `chatId` field.
+**Finding your Telegram chat ID:** Send any message to the bot and check the logs for the `chatId` field.
 
 ### Skills
 

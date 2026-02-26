@@ -31,6 +31,8 @@ nvm use 22
 
 ## Quick Start (5 steps)
 
+### Development Setup (with .env file)
+
 ```bash
 # 1. Clone the repository
 git clone <repo-url>
@@ -43,19 +45,52 @@ npm install
 #    Required: LLM provider key (for chat)
 #    Optional but recommended: BRAVE_API_KEY (for web_search)
 
-# 4. Link the CLI globally
-npm link
+# 4. Test with dev script (loads .env automatically)
+npm run dev list-models
+npm run dev chat "Hello!"
 
 # 5. Verify
+npm run dev chat "What is the capital of France?"
+```
+
+### Production Setup (with environment variables)
+
+```bash
+# 1. Clone and install
+git clone <repo-url>
+cd jarvis
+npm install
+
+# 2. Link the CLI globally
+npm link
+
+# 3. Set environment variables (no .env file needed)
+export SYNTHETIC_API_KEY=your-key-here
+export DEFAULT_MODEL=hf:nvidia/Kimi-K2.5-NVFP4
+export BRAVE_API_KEY=your-brave-key-here  # optional
+
+# 4. Verify
 jarvis --version
 jarvis list-models
+jarvis chat "Hello!"
 ```
 
 ---
 
 ## Step-by-Step Setup
 
-### Step 1 — Clone and install
+Jarvis supports two deployment modes:
+
+1. **Development Mode**: Uses `.env` file for configuration (easier for local development)
+2. **Production Mode**: Uses environment variables (better for servers and containers)
+
+Choose the mode that fits your use case.
+
+---
+
+### Development Mode Setup
+
+#### Step 1 — Clone and install
 
 ```bash
 git clone <repo-url>
@@ -67,7 +102,7 @@ npm install
 
 ---
 
-### Step 2 — Configure your API key
+#### Step 2 — Configure your API key
 
 Open `.env` in your editor:
 
@@ -80,7 +115,7 @@ code .env
 
 Set the required variables for your provider:
 
-#### Provider A: Synthetic (default)
+##### Provider A: Synthetic (default)
 
 Get a key at [synthetic.new](https://synthetic.new/).
 
@@ -94,7 +129,7 @@ Optionally pin a model:
 SYNTHETIC_DEFAULT_MODEL=hf:nvidia/Kimi-K2.5-NVFP4
 ```
 
-#### Provider B: MiniMax
+##### Provider B: MiniMax
 
 ```env
 LLM_PROVIDER=minimax
@@ -102,7 +137,7 @@ MINIMAX_API_KEY=your-minimax-api-key-here
 MINIMAX_DEFAULT_MODEL=MiniMax-M2.5
 ```
 
-#### Provider C: Any OpenAI-compatible API
+##### Provider C: Any OpenAI-compatible API
 
 ```env
 LLM_PROVIDER=openai-compatible
@@ -111,7 +146,7 @@ LLM_API_KEY=your-api-key-here
 OPENAI_COMPATIBLE_DEFAULT_MODEL=your-model-name
 ```
 
-### Step 2b — Configure `web_search` backend (optional but recommended)
+#### Step 2b — Configure `web_search` backend (optional but recommended)
 
 Jarvis now includes a `web_search` tool. You can choose the backend with:
 
@@ -119,7 +154,7 @@ Jarvis now includes a `web_search` tool. You can choose the backend with:
 JARVIS_SEARCH_PROVIDER=brave
 ```
 
-#### Option 1: Brave Search (recommended)
+##### Option 1: Brave Search (recommended)
 
 ```env
 BRAVE_API_KEY=your-brave-api-key-here
@@ -127,7 +162,7 @@ BRAVE_API_KEY=your-brave-api-key-here
 # BRAVE_SEARCH_BASE_URL=https://api.search.brave.com/res/v1/web/search
 ```
 
-#### Option 2: Synthetic Search
+##### Option 2: Synthetic Search
 
 ```env
 JARVIS_SEARCH_PROVIDER=synthetic
@@ -140,13 +175,13 @@ If `web_search` is used without a configured provider key, Jarvis returns a clea
 
 ---
 
-### Step 3 — Discover available models
+#### Step 3 — Discover available models
 
 ```bash
-node --experimental-strip-types src/cli.ts list-models
+npm run dev list-models
 ```
 
-Copy a model name you want to use and set it as your default:
+Copy a model name you want to use and set it as your default in `.env`:
 
 ```env
 DEFAULT_MODEL=hf:nvidia/Kimi-K2.5-NVFP4
@@ -154,7 +189,75 @@ DEFAULT_MODEL=hf:nvidia/Kimi-K2.5-NVFP4
 
 ---
 
-### Step 4 — Link the CLI globally
+#### Step 4 — Run your first chat
+
+```bash
+npm run dev chat "Hello! Can you introduce yourself?"
+```
+
+Or with tool calling enabled (Jarvis can read files, search code, run commands):
+
+```bash
+npm run dev chat-with-tools "What files are in the current directory?"
+```
+
+---
+
+### Production Mode Setup
+
+#### Step 1 — Clone and install
+
+```bash
+git clone <repo-url>
+cd jarvis
+npm install
+```
+
+---
+
+#### Step 2 — Set environment variables
+
+Instead of using a `.env` file, export environment variables directly:
+
+##### Provider A: Synthetic (default)
+
+```bash
+export SYNTHETIC_API_KEY=your-synthetic-api-key-here
+export DEFAULT_MODEL=hf:nvidia/Kimi-K2.5-NVFP4
+```
+
+##### Provider B: MiniMax
+
+```bash
+export LLM_PROVIDER=minimax
+export MINIMAX_API_KEY=your-minimax-api-key-here
+export MINIMAX_DEFAULT_MODEL=MiniMax-M2.5
+```
+
+##### Provider C: Any OpenAI-compatible API
+
+```bash
+export LLM_PROVIDER=openai-compatible
+export LLM_BASE_URL=https://your-provider.com/v1
+export LLM_API_KEY=your-api-key-here
+export OPENAI_COMPATIBLE_DEFAULT_MODEL=your-model-name
+```
+
+##### Web Search (optional)
+
+```bash
+# Brave Search (recommended)
+export JARVIS_SEARCH_PROVIDER=brave
+export BRAVE_API_KEY=your-brave-api-key-here
+
+# OR Synthetic Search
+export JARVIS_SEARCH_PROVIDER=synthetic
+export SYNTHETIC_SEARCH_API_KEY=your-synthetic-search-key-here
+```
+
+---
+
+#### Step 3 — Link the CLI globally
 
 This installs `jarvis` as a system-wide command:
 
@@ -171,23 +274,33 @@ jarvis --help
 
 To unlink later: `npm unlink -g jarvis`
 
-> **Note:** If you prefer not to link globally, run `node --experimental-strip-types src/cli.ts` or `./bin/jarvis` from the project directory instead of `jarvis`.
+> **Note:** If you prefer not to link globally, you can still use `npm run dev` commands from the project directory.
 
 ---
 
-### Step 5 — Run your first chat
+#### Step 4 — Discover available models
+
+```bash
+jarvis list-models
+```
+
+---
+
+#### Step 5 — Run your first chat
 
 ```bash
 jarvis chat "Hello! Can you introduce yourself?"
 ```
 
-Or with tool calling enabled (Jarvis can read files, search code, run commands):
+Or with tool calling enabled:
 
 ```bash
 jarvis chat-with-tools "What files are in the current directory?"
 ```
 
-### Step 6 — Use custom skills (optional)
+---
+
+### Custom Skills (optional)
 
 Jarvis can now create and manage custom skills at runtime using tools:
 - `create_skill`
@@ -199,6 +312,10 @@ Custom skills are stored in `data/skills/*.md`, loaded lazily like built-in skil
 Example prompt:
 
 ```bash
+# Development
+npm run dev chat-with-tools "Create a skill named release-checklist that uses read, glob, and web_search to prepare release notes."
+
+# Production
 jarvis chat-with-tools "Create a skill named release-checklist that uses read, glob, and web_search to prepare release notes."
 ```
 
@@ -216,18 +333,32 @@ Jarvis can run as a Telegram bot for persistent, mobile-accessible chat.
 
 ### Step 2 — Configure the token
 
-Add to your `.env`:
+**Development mode** — Add to your `.env`:
 
 ```env
 TELEGRAM_BOT_TOKEN=123456789:ABCdef...
+```
+
+**Production mode** — Export as environment variable:
+
+```bash
+export TELEGRAM_BOT_TOKEN=123456789:ABCdef...
 ```
 
 ### Step 3 — Restrict access (recommended)
 
 Find your Telegram user ID by messaging [@userinfobot](https://t.me/userinfobot), then:
 
+**Development mode** — Add to `.env`:
+
 ```env
 TELEGRAM_ALLOWED_USER_IDS=123456789
+```
+
+**Production mode** — Export as environment variable:
+
+```bash
+export TELEGRAM_ALLOWED_USER_IDS=123456789
 ```
 
 Multiple users: `TELEGRAM_ALLOWED_USER_IDS=123456789,987654321`
@@ -235,26 +366,42 @@ Multiple users: `TELEGRAM_ALLOWED_USER_IDS=123456789,987654321`
 ### Step 4 — Start the bot
 
 ```bash
-# Telegram-only mode
+# Development mode
+npm run dev telegram
+
+# Production mode
 jarvis telegram
 
 # Or as a full service (Telegram + HTTP + cron)
-jarvis serve
+npm run dev serve      # Development
+jarvis serve           # Production
 ```
 
 ---
 
 ## Running as a Background Service
 
-To keep Jarvis running persistently:
+To keep Jarvis running persistently in production:
 
 ### Using `pm2` (recommended)
 
+First, ensure your environment variables are set (either in `.env` for development or exported for production):
+
 ```bash
+# Install pm2 globally
 npm install -g pm2
-pm2 start "jarvis serve" --name jarvis
+
+# Production mode (with environment variables)
+pm2 start jarvis --name jarvis -- serve
+
+# Development mode (loads .env file)
+pm2 start npm --name jarvis -- run dev serve
+
+# Save the process list
 pm2 save
-pm2 startup   # Follow printed instructions to auto-start on reboot
+
+# Auto-start on reboot
+pm2 startup   # Follow printed instructions
 ```
 
 Monitor with:
@@ -262,12 +409,52 @@ Monitor with:
 ```bash
 pm2 logs jarvis
 pm2 status
+pm2 restart jarvis
+pm2 stop jarvis
+```
+
+### Using systemd (Linux)
+
+Create `/etc/systemd/system/jarvis.service`:
+
+```ini
+[Unit]
+Description=Jarvis AI Assistant
+After=network.target
+
+[Service]
+Type=simple
+User=youruser
+WorkingDirectory=/path/to/jarvis
+Environment="SYNTHETIC_API_KEY=your-key-here"
+Environment="DEFAULT_MODEL=hf:nvidia/Kimi-K2.5-NVFP4"
+Environment="TELEGRAM_BOT_TOKEN=your-token-here"
+ExecStart=/usr/bin/node /path/to/.npm-global/bin/jarvis serve
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Then:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable jarvis
+sudo systemctl start jarvis
+sudo systemctl status jarvis
 ```
 
 ### Using a shell script
 
 ```bash
+# Production mode
 nohup jarvis serve >> jarvis.log 2>&1 &
+echo "Jarvis PID: $!"
+
+# Development mode
+nohup npm run dev serve >> jarvis.log 2>&1 &
 echo "Jarvis PID: $!"
 ```
 

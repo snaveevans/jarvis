@@ -3,8 +3,10 @@ import { z } from 'zod'
 import { config as loadEnv } from 'dotenv'
 import { LLM_PROVIDERS } from './llm/provider.ts'
 
-// Load .env file before processing configuration
-loadEnv()
+// Load .env file only in development mode
+if (process.env.NODE_ENV === 'development') {
+  loadEnv()
+}
 
 const PROVIDER_DEFAULT_BASE_URLS = {
   synthetic: 'https://api.synthetic.new/openai/v1',
