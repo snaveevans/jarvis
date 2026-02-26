@@ -5,13 +5,18 @@
   "type": "module",
   "main": "src/index.ts",
   "bin": {
-    "jarvis": "./src/cli.ts"
+    "jarvis": "./bin/jarvis"
+  },
+  "engines": {
+    "node": ">=22.0.0"
   },
   "directories": {
     "doc": "docs"
   },
   "scripts": {
-    "test": "node --experimental-strip-types --test src/**/*.test.ts"
+    "test": "node --experimental-strip-types --test src/**/*.test.ts",
+    "setup": "node -e \"const fs=require('fs'); if(!fs.existsSync('.env')){fs.copyFileSync('.env.example','.env');console.log('Created .env from .env.example — edit it to add your API key.');}else{console.log('.env already exists, skipping.');}\"",
+    "postinstall": "node -e \"const fs=require('fs'); if(!fs.existsSync('.env')&&fs.existsSync('.env.example')){fs.copyFileSync('.env.example','.env');console.log('\\nCreated .env from .env.example — edit it to add your API key.\\n');}\""
   },
   "keywords": [],
   "author": "",

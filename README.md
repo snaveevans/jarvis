@@ -15,36 +15,20 @@ Jarvis is being built **incrementally and deliberately**. This is not a code kno
 ## Requirements
 
 - **Node.js v22+** (uses native TypeScript execution via `--experimental-strip-types`)
-- A [synthetic.new](https://synthetic.new/) API key
+- An API key for a supported LLM provider ([synthetic.new](https://synthetic.new/), MiniMax, or any OpenAI-compatible API)
 
 ## Getting Started
 
 ```bash
-# Clone and install
 git clone <repo-url>
 cd jarvis
-npm install
-
-# Copy env file and configure
-cp .env.example .env
+npm install        # installs deps and creates .env from .env.example
+# edit .env — add your SYNTHETIC_API_KEY (or other provider key)
+npm link           # installs jarvis as a global CLI command
+jarvis list-models # verify setup
 ```
 
-Edit `.env` and set at minimum:
-
-```
-SYNTHETIC_API_KEY=your-api-key-here
-DEFAULT_MODEL=hf:nvidia/Kimi-K2.5-NVFP4
-```
-
-Run `jarvis list-models` to see available models.
-
-### Link the CLI (optional)
-
-```bash
-npm link
-```
-
-This lets you run `jarvis` from anywhere. Without it, use `node --experimental-strip-types src/cli.ts` instead.
+→ **See [INSTALL.md](./INSTALL.md) for the full step-by-step installation guide**, including provider setup, Telegram bot configuration, running as a background service, and troubleshooting.
 
 ## Usage
 
