@@ -53,6 +53,7 @@
     "timeoutMs": "JARVIS_TOOLS_TIMEOUT_MS",
     "maxGlobResults": "JARVIS_TOOLS_MAX_GLOB_RESULTS",
     "maxGrepMatches": "JARVIS_TOOLS_MAX_GREP_MATCHES",
-    "maxReadLines": "JARVIS_TOOLS_MAX_READ_LINES"
+    "maxReadLines": "JARVIS_TOOLS_MAX_READ_LINES",
+    "eventStoreSize": "JARVIS_TOOLS_EVENT_STORE_SIZE"
   }
 }

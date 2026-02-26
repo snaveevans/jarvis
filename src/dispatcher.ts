@@ -10,6 +10,7 @@ import type { LoggerConfig } from './logger.ts'
 import type { Tool, ToolCall, ToolResult, ToolExecutionContext } from './tools/types.ts'
 import type { ToolDefinition } from './llm/chat-with-tools.ts'
 import type { SkillRegistry } from './skills/index.ts'
+import type { EventStore } from './telemetry/event-store.ts'
 
 const DEFAULT_BASE_PROMPT =
   'You are a helpful assistant with access to tools: read, glob, grep, edit, write, shell, ask_user, todo_list, web_fetch, sub_agent, and read_file. Prefer specialized tools over shell for file operations.'
@@ -30,6 +31,7 @@ export interface DispatcherConfig {
   autoSummarize?: boolean
   maxToolIterations?: number
   maxParallelTools?: number
+  eventStore?: EventStore
   searchPool?: ToolExecutionContext['searchPool']
   shellPool?: ToolExecutionContext['shellPool']
 }
@@ -74,7 +76,7 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
   const endpoints = new Map<string, Endpoint>()
   const logger = createLogger(config.logger)
   const basePrompt = config.baseSystemPrompt ?? DEFAULT_BASE_PROMPT
-  const { skillRegistry } = config
+  const { skillRegistry, eventStore } = config
   const extraTools = config.extraTools ?? []
   const memoryService = config.memoryService
   const pendingMemoryWrites = new Set<Promise<void>>()
@@ -187,6 +189,11 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
         // Handle /clear command
         if (message.text === '/clear') {
           config.sessionStore.clear(message.sessionId)
+          eventStore?.record({
+            type: 'session',
+            sessionId: message.sessionId,
+            action: 'cleared',
+          })
           await endpoint.send({
             text: 'Conversation cleared.',
             sessionId: message.sessionId,
@@ -218,6 +225,7 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
           : session.messages
 
         try {
+          const llmCallStart = Date.now()
           const response = await chatWithTools(config.client, llmMessages, {
             model: config.model,
             ...mergedToolOptions,
@@ -225,6 +233,7 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
             maxParallelTools: config.maxParallelTools,
             maxIterations: config.maxToolIterations,
             onToolCall: (observation) => {
+              const args = JSON.stringify(JSON.parse(observation.toolCall.function.arguments ?? '{}'))
               logger.info(
                 {
                   sessionId: message.sessionId,
@@ -232,13 +241,25 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
                   iteration: observation.iteration,
                   toolName: observation.toolCall.function.name,
                   success: !observation.result.error,
+                  durationMs: observation.durationMs,
                 },
                 'Tool call executed'
               )
+              eventStore?.record({
+                type: 'tool_call',
+                sessionId: message.sessionId,
+                toolName: observation.toolCall.function.name,
+                argsSummary: args.length > 200 ? args.slice(0, 200) + '…' : args,
+                success: !observation.result.error,
+                errorMessage: observation.result.error,
+                durationMs: observation.durationMs,
+                iteration: observation.iteration,
+              })
             },
           })
 
           if (response.usage) {
+            const llmDurationMs = Date.now() - llmCallStart
             logger.info(
               {
                 sessionId: message.sessionId,
@@ -249,6 +270,16 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
               },
               'LLM usage'
             )
+            eventStore?.record({
+              type: 'llm_call',
+              sessionId: message.sessionId,
+              model: response.model ?? config.model,
+              promptTokens: response.usage.prompt_tokens ?? 0,
+              completionTokens: response.usage.completion_tokens ?? 0,
+              totalTokens: response.usage.total_tokens ?? 0,
+              durationMs: llmDurationMs,
+              iteration: 0,
+            })
           }
 
           const content = response.choices[0]?.message?.content
@@ -272,7 +303,17 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
           })
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error)
+          const errorCode = (error as { code?: string }).code
+          const statusCode = (error as { statusCode?: number }).statusCode
           logger.error({ sessionId: message.sessionId, error: errorMessage }, 'Error processing message')
+          eventStore?.record({
+            type: 'error',
+            sessionId: message.sessionId,
+            category: 'dispatch',
+            message: errorMessage,
+            code: errorCode,
+            statusCode,
+          })
 
           // Remove failed user message to keep history clean
           session.messages.pop()
@@ -320,17 +361,41 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
           : session.messages
 
         try {
+          const llmStart = Date.now()
           const response = await chatWithTools(config.client, llmMessages, {
             model: config.model,
             ...mergedToolOptions,
             toolContext,
             maxParallelTools: config.maxParallelTools,
             maxIterations: config.maxToolIterations,
+            onToolCall: (obs) => {
+              eventStore?.record({
+                type: 'tool_call',
+                sessionId: params.sessionId,
+                toolName: obs.toolCall.function.name,
+                argsSummary: obs.toolCall.function.arguments.slice(0, 200),
+                success: !obs.result.error,
+                errorMessage: obs.result.error,
+                durationMs: obs.durationMs,
+                iteration: obs.iteration,
+              })
+            },
           })
 
           const content = response.choices[0]?.message?.content
           if (!content) return
           const userVisibleContent = toUserVisibleContent(content)
+
+          eventStore?.record({
+            type: 'llm_call',
+            sessionId: params.sessionId,
+            model: config.model,
+            promptTokens: response.usage?.prompt_tokens ?? 0,
+            completionTokens: response.usage?.completion_tokens ?? 0,
+            totalTokens: response.usage?.total_tokens ?? 0,
+            durationMs: Date.now() - llmStart,
+            iteration: 0,
+          })
 
           config.sessionStore.addMessage(session.id, { role: 'assistant', content })
 
@@ -341,7 +406,17 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
           })
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error)
+          const errorCode = (error as { code?: string }).code
+          const statusCode = (error as { statusCode?: number }).statusCode
           logger.error({ sessionId: params.sessionId, error: errorMessage }, 'Error in proactive send')
+          eventStore?.record({
+            type: 'error',
+            sessionId: params.sessionId,
+            category: 'dispatch',
+            message: errorMessage,
+            code: errorCode,
+            statusCode,
+          })
           session.messages.pop()
         }
       } finally {

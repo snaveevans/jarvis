@@ -98,6 +98,7 @@ const configSchema = z.object({
     maxGlobResults: numStr(1_000),
     maxGrepMatches: numStr(1_000),
     maxReadLines: numStr(2_000),
+    eventStoreSize: numStr(500),
   }),
 })
 
@@ -145,6 +146,7 @@ const envMapping: Record<string, string[]> = {
   JARVIS_TOOLS_MAX_GLOB_RESULTS: ['tools', 'maxGlobResults'],
   JARVIS_TOOLS_MAX_GREP_MATCHES: ['tools', 'maxGrepMatches'],
   JARVIS_TOOLS_MAX_READ_LINES: ['tools', 'maxReadLines'],
+  JARVIS_TOOLS_EVENT_STORE_SIZE: ['tools', 'eventStoreSize'],
 }
 
 let cachedConfig: JarvisConfig | null = null
@@ -310,6 +312,7 @@ export function logConfig(logger: { info: (obj: Record<string, unknown>, msg: st
       maxGlobResults: config.tools.maxGlobResults,
       maxGrepMatches: config.tools.maxGrepMatches,
       maxReadLines: config.tools.maxReadLines,
+      eventStoreSize: config.tools.eventStoreSize,
     },
   }
 

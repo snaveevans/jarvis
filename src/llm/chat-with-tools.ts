@@ -17,6 +17,7 @@ export interface ToolCallObservation {
   iteration: number
   toolCall: ToolCall
   result: ToolResult
+  durationMs: number
 }
 
 export type ToolDefinition = {
@@ -249,8 +250,10 @@ export async function chatWithTools(
     const toolCalls = choice.message.tool_calls.map(tc => tc as ToolCall)
     const settlements = await withConcurrencyLimit(
       toolCalls.map((toolCall) => async () => {
+        const callStart = Date.now()
         const result = await executeToolFn(toolCall, options.toolContext)
-        options.onToolCall?.({ iteration, toolCall, result })
+        const durationMs = Date.now() - callStart
+        options.onToolCall?.({ iteration, toolCall, result, durationMs })
         return { toolCall, result }
       }),
       maxParallel

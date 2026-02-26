@@ -19,6 +19,10 @@ import { createMemoryWorkerClient, createSearchWorkerPool } from './workers/inde
 import { createShellPool } from './shell/index.ts'
 import { createScheduleMessageTools } from './tools/schedule-message.ts'
 import { createMemoryTools } from './tools/memory-tools.ts'
+import { createIntrospectTool } from './tools/introspect.ts'
+import { createReadLogsTool } from './tools/read-logs.ts'
+import { createHealthCheckTool } from './tools/health-check.ts'
+import { createEventStore } from './telemetry/event-store.ts'
 import { getConfig, logConfig } from './config.ts'
 import type { ChatMessage } from './llm/index.ts'
 import type { MemoryService, MemoryType } from './memory/index.ts'
@@ -434,6 +438,15 @@ program
       const cliEndpoint = createCliEndpoint()
       const memoryTools = memoryService ? createMemoryTools(memoryService) : []
 
+      const processStartMs = Date.now()
+      const eventStore = createEventStore(config.tools.eventStoreSize)
+      const logFilePath = options.logFile ?? config.logging.file ?? ''
+      const introspectionTools = [
+        createIntrospectTool({ eventStore, sessionStore, memoryService, config, processStartMs }),
+        ...(logFilePath ? [createReadLogsTool({ logFilePath })] : []),
+        createHealthCheckTool({ client, memoryService, sessionStore, processStartMs }),
+      ]
+
       dispatcher = createDispatcher({
         client,
         sessionStore,
@@ -441,8 +454,9 @@ program
         providerName: config.llm.provider,
         baseSystemPrompt: options.system ?? (config.llm.defaultPrompt || undefined),
         logger: loggerConfig,
-        extraTools: memoryTools,
+        extraTools: [...memoryTools, ...introspectionTools],
         memoryService,
+        eventStore,
         maxToolIterations: config.tools.maxIterations,
         maxParallelTools: config.tools.maxParallel,
       })
@@ -531,12 +545,27 @@ program
 
       const memoryTools = memoryService ? createMemoryTools(memoryService) : []
 
+      const processStartMs = Date.now()
+      const eventStore = createEventStore(config.tools.eventStoreSize)
+      const logFilePath = options.logFile ?? config.logging.file ?? ''
+      const introspectionTools = [
+        createIntrospectTool({ eventStore, sessionStore, memoryService, config, processStartMs }),
+        ...(logFilePath ? [createReadLogsTool({ logFilePath })] : []),
+        createHealthCheckTool({ client, memoryService, sessionStore, processStartMs }),
+      ]
+
       const skillRegistry = createSkillRegistry()
       skillRegistry.register({
         name: 'reminder',
         description: 'Set, list, and cancel time-based reminders',
         tools: ['schedule_message', 'list_scheduled_messages', 'cancel_scheduled_message'],
         filePath: 'src/skills/reminder.md',
+      })
+      skillRegistry.register({
+        name: 'introspection',
+        description: 'Self-diagnosis using introspect, read_logs, and health_check tools',
+        tools: ['introspect', 'read_logs', 'health_check'],
+        filePath: 'src/skills/introspection.md',
       })
 
       // Create schedule-message tools — dispatcher ref captured after creation
@@ -557,9 +586,10 @@ program
         providerName: config.llm.provider,
         baseSystemPrompt: options.systemPrompt ?? (config.llm.defaultPrompt || undefined),
         logger: loggerConfig,
-        extraTools: [...scheduleHandle.tools, ...memoryTools],
+        extraTools: [...scheduleHandle.tools, ...memoryTools, ...introspectionTools],
         skillRegistry,
         memoryService,
+        eventStore,
         maxToolIterations: config.tools.maxIterations,
         maxParallelTools: config.tools.maxParallel,
         searchPool,
@@ -639,12 +669,27 @@ program
       const sessionStore = createInMemorySessionStore({ onEvict })
       const memoryTools = memoryService ? createMemoryTools(memoryService) : []
 
+      const processStartMs = Date.now()
+      const eventStore = createEventStore(config.tools.eventStoreSize)
+      const logFilePath = options.logFile ?? config.logging.file ?? ''
+      const introspectionTools = [
+        createIntrospectTool({ eventStore, sessionStore, memoryService, config, processStartMs }),
+        ...(logFilePath ? [createReadLogsTool({ logFilePath })] : []),
+        createHealthCheckTool({ client, memoryService, sessionStore, processStartMs }),
+      ]
+
       const skillRegistry = createSkillRegistry()
       skillRegistry.register({
         name: 'reminder',
         description: 'Set, list, and cancel time-based reminders',
         tools: ['schedule_message', 'list_scheduled_messages', 'cancel_scheduled_message'],
         filePath: 'src/skills/reminder.md',
+      })
+      skillRegistry.register({
+        name: 'introspection',
+        description: 'Self-diagnosis using introspect, read_logs, and health_check tools',
+        tools: ['introspect', 'read_logs', 'health_check'],
+        filePath: 'src/skills/introspection.md',
       })
 
       // Create schedule-message tools — dispatcher ref captured after creation
@@ -665,9 +710,10 @@ program
         providerName: config.llm.provider,
         baseSystemPrompt: options.systemPrompt ?? (config.llm.defaultPrompt || undefined),
         logger: loggerConfig,
-        extraTools: [...scheduleHandle.tools, ...memoryTools],
+        extraTools: [...scheduleHandle.tools, ...memoryTools, ...introspectionTools],
         skillRegistry,
         memoryService,
+        eventStore,
         maxToolIterations: config.tools.maxIterations,
         maxParallelTools: config.tools.maxParallel,
         searchPool,
