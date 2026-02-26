@@ -3,11 +3,8 @@
 import { createInterface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 
-import { config } from 'dotenv'
 import { Command } from 'commander'
 
-// Load environment variables from .env file
-config()
 import { LLMClient } from './llm/index.ts'
 import { createLogger } from './logger.ts'
 import { buildPromptInput } from './prompt-input.ts'
@@ -22,15 +19,17 @@ import { createMemoryWorkerClient, createSearchWorkerPool } from './workers/inde
 import { createShellPool } from './shell/index.ts'
 import { createScheduleMessageTools } from './tools/schedule-message.ts'
 import { createMemoryTools } from './tools/memory-tools.ts'
+import { getConfig, logConfig } from './config.ts'
 import type { ChatMessage } from './llm/index.ts'
 import type { MemoryService, MemoryType } from './memory/index.ts'
 
-function parseTelegramAllowedUserIds(): number[] | undefined {
-  const raw = process.env.TELEGRAM_ALLOWED_USER_IDS
-  if (!raw) return undefined
-  const ids = raw.split(',').map(s => s.trim()).filter(Boolean).map(Number)
+function parseTelegramAllowedUserIds(configValue: number[] | string | undefined): number[] | undefined {
+  if (!configValue) return undefined
+  const ids = Array.isArray(configValue) 
+    ? configValue 
+    : configValue.split(',').map(s => s.trim()).filter(Boolean).map(Number)
   if (ids.some(Number.isNaN)) {
-    console.error('Error: TELEGRAM_ALLOWED_USER_IDS contains non-numeric values.')
+    console.error('Error: telegram.allowedUserIds contains non-numeric values.')
     process.exit(1)
   }
   return ids
@@ -75,11 +74,14 @@ function parseSummaryWindowMinutes(value: unknown): number | undefined {
   return parsed
 }
 
-function resolveAutoSummarize(cliFlag: boolean): boolean {
-  if (!cliFlag) return false
-  const env = process.env.JARVIS_AUTO_SUMMARIZE
-  if (env !== undefined) return env !== '0' && env.toLowerCase() !== 'false'
-  return true
+async function resolveAutoSummarize(cliFlag: boolean | undefined): Promise<boolean> {
+  // If explicitly disabled via --no-auto-summary, return false
+  if (cliFlag === false) return false
+  // If explicitly enabled (rare, but possible), return true
+  if (cliFlag === true) return true
+  // Check config file (already loaded with env var overrides applied)
+  const config = await getConfig()
+  return config.memory.autoSummarize
 }
 
 const program = new Command()
@@ -103,7 +105,8 @@ program
   .action(async (message, options) => {
     let memoryService: ReturnType<typeof createMemoryService> | undefined
     try {
-      const model = options.model ?? process.env.DEFAULT_MODEL
+      const config = await getConfig()
+      const model = options.model ?? config.llm.defaultModel
 
       if (!model) {
         console.error('Error: Model is required. Either use -m/--model flag or set DEFAULT_MODEL environment variable.')
@@ -375,16 +378,17 @@ program
   .option('--max-tokens <tokens>', 'Maximum tokens to generate')
   .option('-s, --system <prompt>', 'System prompt')
   .option('-f, --file <path>', 'Read prompt content from a file')
-  .option('--log-level <level>', 'Log level for tool-call logs', process.env.JARVIS_LOG_LEVEL ?? 'info')
+  .option('--log-level <level>', 'Log level for tool-call logs', 'info')
   .option('--log-file <path>', 'Also write tool-call logs to a file')
   .option('--no-memory', 'Disable memory features for this invocation')
+  .option('--auto-summary', 'Enable auto-summarization of conversations')
   .option('--no-auto-summary', 'Disable auto-summarization of conversations')
   .option('--memory-summary-window-minutes <minutes>', 'Rolling summary window in minutes')
   .action(async (message, options) => {
     let memoryService: ReturnType<typeof createMemoryService> | undefined
     let dispatcher: ReturnType<typeof createDispatcher> | undefined
     try {
-      const model = options.model ?? process.env.DEFAULT_MODEL
+      const model = options.model ?? config.llm.defaultModel
 
       if (!model) {
         console.error('Error: Model is required. Either use -m/--model flag or set DEFAULT_MODEL environment variable.')
@@ -392,10 +396,10 @@ program
         process.exit(1)
       }
 
-      const client = new LLMClient({ defaultModel: model })
+      const client = new LLMClient({ apiKey: config.llm.apiKey, defaultModel: model, baseUrl: config.llm.baseUrl })
       const sessionStore = createInMemorySessionStore()
       const cliEndpoint = createCliEndpoint()
-      const loggerConfig = { level: options.logLevel, filePath: options.logFile }
+      const loggerConfig = { level: options.logLevel ?? config.logging.level, filePath: options.logFile ?? config.logging.file }
       const logger = createLogger(loggerConfig)
 
       if (options.memory) {
@@ -403,7 +407,7 @@ program
       }
       const memoryTools = memoryService ? createMemoryTools(memoryService) : []
       const summaryWindowMinutes = parseSummaryWindowMinutes(
-        options.memorySummaryWindowMinutes ?? process.env.JARVIS_MEMORY_SUMMARY_WINDOW_MINUTES
+        options.memorySummaryWindowMinutes ?? config.memory.summaryWindowMinutes
       )
 
       dispatcher = createDispatcher({
@@ -415,7 +419,7 @@ program
         extraTools: memoryTools,
         memoryService,
         summaryWindowMs: summaryWindowMinutes ? summaryWindowMinutes * 60_000 : undefined,
-        autoSummarize: resolveAutoSummarize(options.autoSummary),
+        autoSummarize: await resolveAutoSummarize(options.autoSummary),
       })
       dispatcher.registerEndpoint(cliEndpoint)
 
@@ -450,30 +454,32 @@ program
   .description('Start Telegram bot (long-polling mode)')
   .option('-m, --model <model>', 'Model to use (or set DEFAULT_MODEL env var)')
   .option('-s, --system-prompt <prompt>', 'System prompt for the bot')
-  .option('--log-level <level>', 'Log level', process.env.JARVIS_LOG_LEVEL ?? 'info')
+  .option('--log-level <level>', 'Log level', 'info')
   .option('--log-file <path>', 'Also write logs to a file')
   .option('--no-memory', 'Disable memory features for this invocation')
+  .option('--auto-summary', 'Enable auto-summarization of conversations')
   .option('--no-auto-summary', 'Disable auto-summarization of conversations')
   .option('--memory-summary-window-minutes <minutes>', 'Rolling summary window in minutes')
   .action(async (options) => {
     let memoryService: MemoryService | undefined
     try {
-      const model = options.model ?? process.env.DEFAULT_MODEL
+      const config = await getConfig()
+      const model = options.model ?? config.llm.defaultModel
 
       if (!model) {
         console.error('Error: Model is required. Either use -m/--model flag or set DEFAULT_MODEL environment variable.')
         process.exit(1)
       }
 
-      const token = process.env.TELEGRAM_BOT_TOKEN
+      const token = config.telegram.botToken
       if (!token) {
         console.error('Error: TELEGRAM_BOT_TOKEN environment variable is required.')
         console.error('\nGet a bot token from @BotFather on Telegram and add it to your .env file.')
         process.exit(1)
       }
 
-      const allowedUserIds = parseTelegramAllowedUserIds()
-      const client = new LLMClient({ defaultModel: model })
+      const allowedUserIds = parseTelegramAllowedUserIds(config.telegram.allowedUserIds)
+      const client = new LLMClient({ apiKey: config.llm.apiKey, defaultModel: model, baseUrl: config.llm.baseUrl })
       const sessionStore = createInMemorySessionStore()
       const telegramEndpoint = createTelegramEndpoint({
         token,
@@ -482,14 +488,15 @@ program
         logFile: options.logFile,
       })
 
-      const loggerConfig = { level: options.logLevel, filePath: options.logFile }
+      const loggerConfig = { level: options.logLevel ?? config.logging.level, filePath: options.logFile ?? config.logging.file }
       const telegramLogger = createLogger(loggerConfig)
+      logConfig(telegramLogger, config)
       if (options.memory) {
-        memoryService = createMemoryWorkerClient({ logger: telegramLogger })
+        memoryService = createMemoryWorkerClient({ logger: telegramLogger, memoryDir: config.memory.dir })
       }
       const memoryTools = memoryService ? createMemoryTools(memoryService) : []
       const summaryWindowMinutes = parseSummaryWindowMinutes(
-        options.memorySummaryWindowMinutes ?? process.env.JARVIS_MEMORY_SUMMARY_WINDOW_MINUTES
+        options.memorySummaryWindowMinutes ?? config.memory.summaryWindowMinutes
       )
 
       const skillRegistry = createSkillRegistry()
@@ -521,7 +528,7 @@ program
         skillRegistry,
         memoryService,
         summaryWindowMs: summaryWindowMinutes ? summaryWindowMinutes * 60_000 : undefined,
-        autoSummarize: resolveAutoSummarize(options.autoSummary),
+        autoSummarize: await resolveAutoSummarize(options.autoSummary),
         searchPool,
         shellPool,
       })
@@ -561,32 +568,35 @@ program
   .description('Start all endpoints and cron triggers as a long-running service')
   .option('-m, --model <model>', 'Model to use (or set DEFAULT_MODEL env var)')
   .option('-s, --system-prompt <prompt>', 'System prompt')
-  .option('--log-level <level>', 'Log level', process.env.JARVIS_LOG_LEVEL ?? 'info')
+  .option('--log-level <level>', 'Log level', 'info')
   .option('--log-file <path>', 'Also write logs to a file')
   .option('--cron <tasks>', 'Cron tasks as JSON array: [{"name","intervalMs","targetSessionId","targetEndpointKind","prompt"}]')
   .option('--no-memory', 'Disable memory features for this invocation')
+  .option('--auto-summary', 'Enable auto-summarization of conversations')
   .option('--no-auto-summary', 'Disable auto-summarization of conversations')
   .option('--memory-summary-window-minutes <minutes>', 'Rolling summary window in minutes')
   .action(async (options) => {
     let memoryService: MemoryService | undefined
     try {
-      const model = options.model ?? process.env.DEFAULT_MODEL
+      const config = await getConfig()
+      const model = options.model ?? config.llm.defaultModel
 
       if (!model) {
         console.error('Error: Model is required. Either use -m/--model flag or set DEFAULT_MODEL environment variable.')
         process.exit(1)
       }
 
-      const client = new LLMClient({ defaultModel: model })
+      const client = new LLMClient({ apiKey: config.llm.apiKey, defaultModel: model, baseUrl: config.llm.baseUrl })
       const sessionStore = createInMemorySessionStore()
-      const loggerConfig = { level: options.logLevel, filePath: options.logFile }
+      const loggerConfig = { level: options.logLevel ?? config.logging.level, filePath: options.logFile ?? config.logging.file }
       const logger = createLogger(loggerConfig)
+      logConfig(logger, config)
       if (options.memory) {
         memoryService = createMemoryWorkerClient({ logger })
       }
       const memoryTools = memoryService ? createMemoryTools(memoryService) : []
       const summaryWindowMinutes = parseSummaryWindowMinutes(
-        options.memorySummaryWindowMinutes ?? process.env.JARVIS_MEMORY_SUMMARY_WINDOW_MINUTES
+        options.memorySummaryWindowMinutes ?? config.memory.summaryWindowMinutes
       )
 
       const skillRegistry = createSkillRegistry()
@@ -618,16 +628,16 @@ program
         skillRegistry,
         memoryService,
         summaryWindowMs: summaryWindowMinutes ? summaryWindowMinutes * 60_000 : undefined,
-        autoSummarize: resolveAutoSummarize(options.autoSummary),
+        autoSummarize: await resolveAutoSummarize(options.autoSummary),
         searchPool,
         shellPool,
       })
       dispatcherRef = dispatcher
 
       // Register Telegram endpoint if token is available
-      const token = process.env.TELEGRAM_BOT_TOKEN
+      const token = config.telegram.botToken
       if (token) {
-        const allowedUserIds = parseTelegramAllowedUserIds()
+        const allowedUserIds = parseTelegramAllowedUserIds(config.telegram.allowedUserIds)
         const telegramEndpoint = createTelegramEndpoint({
           token,
           allowedUserIds,

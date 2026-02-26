@@ -1,4 +1,5 @@
 import pino from 'pino'
+import type { JarvisConfig } from './config.ts'
 
 export interface LoggerConfig {
   level?: string
@@ -7,8 +8,8 @@ export interface LoggerConfig {
 }
 
 export function createLogger(config: LoggerConfig = {}): pino.Logger {
-  const level = config.level ?? process.env.JARVIS_LOG_LEVEL ?? 'info'
-  const filePath = config.filePath ?? process.env.JARVIS_LOG_FILE
+  const level = config.level ?? 'info'
+  const filePath = config.filePath
   const toStdout = config.toStdout ?? true
 
   if (!filePath) {

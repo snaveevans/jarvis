@@ -1,0 +1,19 @@
+{
+  "llm": {
+    "apiKey": "SYNTHETIC_API_KEY",
+    "defaultModel": "DEFAULT_MODEL"
+  },
+  "telegram": {
+    "botToken": "TELEGRAM_BOT_TOKEN",
+    "allowedUserIds": "TELEGRAM_ALLOWED_USER_IDS"
+  },
+  "memory": {
+    "dir": "JARVIS_MEMORY_DIR",
+    "summaryWindowMinutes": "JARVIS_MEMORY_SUMMARY_WINDOW_MINUTES",
+    "autoSummarize": "JARVIS_AUTO_SUMMARIZE"
+  },
+  "logging": {
+    "level": "JARVIS_LOG_LEVEL",
+    "file": "JARVIS_LOG_FILE"
+  }
+}

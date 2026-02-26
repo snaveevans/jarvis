@@ -14,7 +14,7 @@ export interface MemoryDbHandle {
 }
 
 export function resolveMemoryDir(memoryDir?: string): string {
-  return memoryDir ?? process.env.JARVIS_MEMORY_DIR ?? path.join(homedir(), '.jarvis')
+  return memoryDir ?? path.join(homedir(), '.jarvis')
 }
 
 function ensureSchema(db: SqliteDatabase): void {

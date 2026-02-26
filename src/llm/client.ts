@@ -27,11 +27,11 @@ export class LLMClient {
   private readonly defaultModel: string
 
   constructor(config: LLMClientConfig = {}) {
-    const apiKey = config.apiKey ?? process.env.SYNTHETIC_API_KEY
+    const apiKey = config.apiKey
     
     if (!apiKey) {
       throw new LLMError(
-        'API key is required. Set SYNTHETIC_API_KEY environment variable or pass apiKey to config.',
+        'API key is required. Set llm.apiKey in config file.',
         'MISSING_API_KEY'
       )
     }
@@ -41,7 +41,7 @@ export class LLMClient {
       baseURL: config.baseUrl ?? BASE_URL,
     })
     
-    this.defaultModel = config.defaultModel ?? process.env.DEFAULT_MODEL ?? ''
+    this.defaultModel = config.defaultModel ?? ''
   }
 
   private mapError(error: unknown): never {

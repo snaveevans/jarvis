@@ -67,7 +67,8 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
   let activeOperations = 0
   const idleResolvers = new Set<() => void>()
   const summaryWindowMs = config.summaryWindowMs ?? DEFAULT_SUMMARY_WINDOW_MS
-  const autoSummarize = config.autoSummarize ?? true
+  const autoSummarize = config.autoSummarize
+  
   const sessionSummaryWindows = new Map<string, Array<{
     timestampMs: number
     hadToolCalls: boolean

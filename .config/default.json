@@ -1,0 +1,28 @@
+{
+  "llm": {
+    "apiKey": "",
+    "defaultModel": "hf:nvidia/Kimi-K2.5-NVFP4",
+    "baseUrl": "https://api.synthetic.new/v1"
+  },
+  "telegram": {
+    "botToken": "",
+    "allowedUserIds": []
+  },
+  "memory": {
+    "enabled": true,
+    "dir": "",
+    "summaryWindowMinutes": 30,
+    "autoSummarize": false
+  },
+  "logging": {
+    "level": "info",
+    "file": ""
+  },
+  "workers": {
+    "searchPoolSize": 2,
+    "shellPoolSize": 3
+  },
+  "tools": {
+    "maxParallel": 5
+  }
+}
