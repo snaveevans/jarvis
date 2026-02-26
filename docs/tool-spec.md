@@ -181,6 +181,73 @@ A minimal, opinionated specification for the tools a code-writing AI agent needs
 
 ---
 
+---
+
+### 11. schedule_message / list_scheduled_messages / cancel_scheduled_message
+
+Created via `createScheduleMessageTools()` factory in `src/tools/schedule-message.ts`. Requires `sendProactive`, `dataDir`, and `logger` at construction time. These are generic building blocks — not tied to any specific skill.
+
+#### schedule_message
+
+**Intent**: Schedule a text message to be delivered to the current session after a delay.
+
+| Field | Detail |
+|---|---|
+| Input | `text` (string), `delay_minutes` (number, >= 1) |
+| Output | Confirmation with message ID |
+
+**Behavior**:
+- Creates a timer and persists to `data/scheduled-messages.json` (atomic write)
+- When the timer fires, calls `sendProactive()` to deliver the message to the originating session
+- Survives process restarts — expired messages fire immediately on reload
+
+#### list_scheduled_messages
+
+**Intent**: Show pending scheduled messages for the current session.
+
+| Field | Detail |
+|---|---|
+| Input | (none) |
+| Output | List of messages with IDs, text, and time remaining |
+
+**Behavior**:
+- Filters by the calling session's ID
+- Shows minutes remaining until each message delivers
+
+#### cancel_scheduled_message
+
+**Intent**: Cancel a pending scheduled message.
+
+| Field | Detail |
+|---|---|
+| Input | `message_id` (string), optional `global` (boolean) |
+| Output | Confirmation |
+
+**Behavior**:
+- By default, cancellation is scoped to the calling session
+- If `global: true`, cancellation is performed by ID across sessions
+- Clears the in-memory timer and removes from persistent store
+- Returns error if ID not found
+
+---
+
+## Skills
+
+Skills are **markdown instruction files** that teach the agent how to combine tools for higher-level tasks. They do not define or own tools — if a skill needs a new capability, it's added as a regular tool.
+
+Each skill file (`src/skills/<name>.md`) has two parts:
+1. **Frontmatter** — YAML metadata (name, description, tool names) included in every system prompt
+2. **Body** — Detailed usage guide, examples, and edge cases. The agent loads this on demand via the `read` tool when it needs to understand a skill deeply.
+
+The skill registry reads frontmatter at startup and builds a compact block for the system prompt:
+```
+Available skills (use `read` tool on the skill file for detailed instructions):
+- reminder (src/skills/reminder.md): Set, list, and cancel time-based reminders
+  Tools: schedule_message, list_scheduled_messages, cancel_scheduled_message
+```
+
+---
+
 ## Tool Selection Heuristic
 
 ```
@@ -194,6 +261,7 @@ Need to ask the user something?       -> AskUser
 Need to plan a multi-step task?       -> TodoList
 Need to look something up online?     -> WebFetch
 Need to do something complex/broad?   -> SubAgent
+Need to schedule a delayed message?   -> schedule_message
 ```
 
 ---

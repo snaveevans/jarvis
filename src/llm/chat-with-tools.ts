@@ -1,7 +1,7 @@
 import type { LLMClient } from './client.ts'
 import type { ChatMessage, ChatCompletionResponse } from './types.ts'
-import { getToolDefinitions, executeTool } from '../tools/index.ts'
-import type { ToolCall, ToolResult } from '../tools/types.ts'
+import { getToolDefinitions, executeTool as defaultExecuteTool } from '../tools/index.ts'
+import type { ToolCall, ToolResult, ToolExecutionContext } from '../tools/types.ts'
 
 const MAX_TOOL_ITERATIONS = 5
 
@@ -13,11 +13,25 @@ export interface ToolCallObservation {
   result: ToolResult
 }
 
+export type ToolDefinition = {
+  type: 'function'
+  function: {
+    name: string
+    description: string
+    parameters: Record<string, unknown>
+  }
+}
+
+export type ToolExecutor = (call: ToolCall, context?: ToolExecutionContext) => Promise<ToolResult>
+
 export interface ChatWithToolsOptions {
   model?: string
   temperature?: number
   max_tokens?: number
   onToolCall?: (observation: ToolCallObservation) => void
+  tools?: ToolDefinition[]
+  executeTool?: ToolExecutor
+  toolContext?: ToolExecutionContext
 }
 
 function createIterationLimitResponse(model?: string): ChatCompletionResponse {
@@ -44,7 +58,8 @@ export async function chatWithTools(
   messages: ChatMessage[],
   options: ChatWithToolsOptions = {}
 ): Promise<ChatCompletionResponse> {
-  const tools = getToolDefinitions()
+  const tools = options.tools ?? getToolDefinitions()
+  const executeToolFn = options.executeTool ?? defaultExecuteTool
   let currentMessages = [...messages]
   let iteration = 0
   let latestModel = options.model
@@ -81,7 +96,7 @@ export async function chatWithTools(
     // Execute each tool call
     for (const responseToolCall of choice.message.tool_calls) {
       const toolCall = responseToolCall as ToolCall
-      const result = await executeTool(toolCall)
+      const result = await executeToolFn(toolCall, options.toolContext)
 
       options.onToolCall?.({
         iteration,

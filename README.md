@@ -20,13 +20,31 @@ Jarvis is being built **incrementally and deliberately**. This is not a code kno
 ## Getting Started
 
 ```bash
-# Install dependencies
+# Clone and install
+git clone <repo-url>
+cd jarvis
 npm install
 
 # Copy env file and configure
 cp .env.example .env
-# Edit .env — add your SYNTHETIC_API_KEY and DEFAULT_MODEL
 ```
+
+Edit `.env` and set at minimum:
+
+```
+SYNTHETIC_API_KEY=your-api-key-here
+DEFAULT_MODEL=hf:nvidia/Kimi-K2.5-NVFP4
+```
+
+Run `jarvis list-models` to see available models.
+
+### Link the CLI (optional)
+
+```bash
+npm link
+```
+
+This lets you run `jarvis` from anywhere. Without it, use `node --experimental-strip-types src/cli.ts` instead.
 
 ## Usage
 
@@ -39,18 +57,24 @@ jarvis chat "What is the capital of France?"
 # Stream the response
 jarvis chat "Explain quantum computing" --stream
 
-# Chat with tool calling (file read, grep, shell, etc.)
-jarvis chat-with-tools "Read README.md and summarize it"
-
 # Specify model and temperature
 jarvis chat "Hello" -m "hf:model-name" -t 0.9
 
 # Read prompt from a file
 jarvis chat --file ./prompt.txt
-
-# List available models
-jarvis list-models
 ```
+
+### Chat with Tools
+
+Chat with tool calling enabled — Jarvis can read files, search code, run shell commands, and more.
+
+```bash
+jarvis chat-with-tools "Read README.md and summarize it"
+jarvis chat-with-tools "What does package.json contain?"
+jarvis chat-with-tools --file ./prompt.txt
+```
+
+Available tools: `read`, `glob`, `grep`, `edit`, `write`, `shell`, `ask_user`, `todo_list`, `web_fetch`, `sub_agent`, `read_file`.
 
 ### Telegram Bot
 
@@ -84,6 +108,128 @@ jarvis telegram --log-file ./bot.log     # write logs to file
 
 The bot maintains per-chat conversation history in memory (resets on restart). Long responses are automatically split across multiple messages.
 
+### Serve Mode
+
+Run Jarvis as a long-running service with all endpoints and optional scheduled tasks.
+
+```bash
+# Start with Telegram (token must be in .env)
+jarvis serve -m "hf:model-name"
+
+# Start with cron tasks
+jarvis serve -m "hf:model-name" --cron '[
+  {
+    "name": "daily-checkin",
+    "intervalMs": 86400000,
+    "targetSessionId": "telegram:YOUR_CHAT_ID",
+    "targetEndpointKind": "telegram",
+    "prompt": "Give me a morning briefing."
+  }
+]'
+```
+
+Serve mode automatically registers any available endpoints (Telegram if `TELEGRAM_BOT_TOKEN` is set), initializes all skills (reminder, etc.), and starts cron tasks. Ctrl+C for graceful shutdown.
+
+**Finding your Telegram chat ID:** Send any message to the bot running in `jarvis telegram` mode and check the logs for the `chatId` field.
+
+### Skills
+
+Skills are higher-level capabilities loaded in `serve` and `telegram` modes. They add tools to the LLM and can send proactive messages.
+
+**Reminder** — set, list, and cancel time-based reminders:
+
+```
+You: "Remind me in 30 minutes to take the laundry out"
+Jarvis: Reminder set. Will fire in 30 minute(s).
+... 30 minutes later ...
+Jarvis: Reminder: take the laundry out
+```
+
+Reminder data persists to `data/scheduled-messages.json` and survives process restarts.
+Cancellation is session-scoped by default; use `cancel_scheduled_message(message_id, global=true)` for explicit cross-session cancellation.
+
+### List Models
+
+```bash
+jarvis list-models
+jarvis list-models --json
+```
+
+## Architecture
+
+```
+Endpoints (Telegram, CLI)
+        │
+        ▼
+    Dispatcher ──→ SessionStore (in-memory)
+        │
+        ▼
+  chatWithTools() ──→ LLMClient + Tools (base + extra)
+```
+
+- **Endpoints** receive inbound messages and deliver outbound responses. Each endpoint declares a profile (max message length, tone, formatting) that shapes the system prompt.
+- **Dispatcher** coordinates everything: resolves sessions, builds context-aware system prompts, calls the LLM, and routes responses back through the right endpoint. Accepts `extraTools` (e.g., reminder tools) alongside the base tool set.
+- **Sessions** track conversation history per endpoint+user, keyed by IDs like `telegram:12345` or `cli:default`.
+- **Triggers** (cron) send proactive messages through endpoints on a schedule.
+- **Skills** are markdown instruction files (`src/skills/*.md`) that teach the agent how to combine tools. A compact summary from each skill's frontmatter is injected into the system prompt; the agent can `read` the full file for detailed guidance.
+
+### Key Files
+
+```
+src/
+├── cli.ts                 # CLI entry point (Commander.js)
+├── dispatcher.ts          # Central coordinator
+├── logger.ts              # Pino-based logging
+├── endpoints/
+│   ├── types.ts           # Endpoint, EndpointProfile, InboundMessage, OutboundMessage
+│   ├── telegram.ts        # Telegram endpoint (grammy)
+│   └── cli.ts             # CLI endpoint (stdout)
+├── sessions/
+│   ├── types.ts           # Session interface
+│   └── store.ts           # In-memory session store
+├── triggers/
+│   └── cron.ts            # Interval-based scheduled tasks
+├── skills/
+│   ├── types.ts           # SkillFrontmatter interface
+│   ├── index.ts           # SkillRegistry: reads frontmatter, builds prompt block
+│   └── reminder.md        # Reminder skill instructions
+├── llm/
+│   ├── client.ts          # LLMClient (OpenAI SDK wrapper)
+│   ├── chat-with-tools.ts # Tool execution loop (supports dynamic tools)
+│   ├── types.ts           # Shared interfaces
+│   └── errors.ts          # Custom error classes
+└── tools/
+    ├── index.ts           # Base tool registry and executor
+    ├── schedule-message.ts # Generic scheduled-message tools factory (+ persistence)
+    ├── read.ts, glob.ts, grep.ts, edit.ts, write.ts, shell.ts, ...
+    └── types.ts           # Tool type definitions (+ ToolExecutionContext)
+```
+
+## Environment Variables
+
+| Variable | Required | Description |
+|---|---|---|
+| `SYNTHETIC_API_KEY` | Yes | API key from [synthetic.new](https://synthetic.new/) |
+| `DEFAULT_MODEL` | No | Default model (avoids `-m` flag every time) |
+| `TELEGRAM_BOT_TOKEN` | For Telegram | Bot token from [@BotFather](https://t.me/BotFather) |
+| `JARVIS_LOG_LEVEL` | No | Log level (`debug`, `info`, `warn`, `error`, `silent`) |
+| `JARVIS_LOG_FILE` | No | Path to write logs to a file |
+
+## Development
+
+```bash
+# Run all tests
+npm test
+
+# Run a single test file
+node --experimental-strip-types --test src/sessions/store.test.ts
+
+# CLI smoke check
+node --experimental-strip-types src/cli.ts --help
+```
+
+See [CLAUDE.md](./CLAUDE.md) for detailed development guidelines, code style, and conventions.
+
 ## Roadmap
 
 The vision for Jarvis includes (in no particular order):
@@ -102,4 +248,3 @@ This is a personal project, but feedback and ideas are welcome.
 ## License
 
 MIT
-

@@ -9,7 +9,7 @@ import { subAgentTool } from './sub-agent.ts'
 import { todoListTool } from './todo-list.ts'
 import { webFetchTool } from './web-fetch.ts'
 import { writeTool } from './write.ts'
-import type { Tool, ToolResult, ToolCall } from './types.ts'
+import type { Tool, ToolResult, ToolCall, ToolExecutionContext } from './types.ts'
 import { DEFAULT_TOOL_TIMEOUT_MS, withTimeout } from './common.ts'
 
 export const availableTools: Tool[] = [
@@ -44,7 +44,7 @@ export function getToolDefinitions(): Array<{
   }))
 }
 
-export async function executeTool(call: ToolCall): Promise<ToolResult> {
+export async function executeTool(call: ToolCall, context?: ToolExecutionContext): Promise<ToolResult> {
   const tool = availableTools.find(t => t.name === call.function.name)
 
   if (!tool) {
@@ -58,7 +58,7 @@ export async function executeTool(call: ToolCall): Promise<ToolResult> {
     const args = JSON.parse(call.function.arguments)
     const timeoutMs = tool.timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS
     return await withTimeout(
-      async () => await tool.execute(args),
+      async () => await tool.execute(args, context),
       timeoutMs,
       tool.name
     )

@@ -5,6 +5,8 @@ export type {
   ChatWithToolsClient,
   ChatWithToolsOptions,
   ToolCallObservation,
+  ToolDefinition,
+  ToolExecutor,
 } from './chat-with-tools.ts'
 export type {
   ChatMessage,

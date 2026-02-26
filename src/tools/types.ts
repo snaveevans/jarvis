@@ -3,12 +3,17 @@ export interface ToolResult {
   error?: string
 }
 
+export interface ToolExecutionContext {
+  sessionId: string
+  endpointKind: string
+}
+
 export interface Tool {
   name: string
   description: string
   parameters: Record<string, unknown>
   timeoutMs?: number
-  execute: (args: Record<string, unknown>) => Promise<ToolResult>
+  execute: (args: Record<string, unknown>, context?: ToolExecutionContext) => Promise<ToolResult>
 }
 
 export interface ToolCall {

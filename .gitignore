@@ -45,5 +45,8 @@ tmp/
 temp/
 *.tmp
 
+# Runtime data
+data/
+
 # Debug files
 .pnpm-debug.log*

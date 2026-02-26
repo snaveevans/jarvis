@@ -13,6 +13,8 @@ import { createInMemorySessionStore } from './sessions/store.ts'
 import { createTelegramEndpoint } from './endpoints/telegram.ts'
 import { createCliEndpoint } from './endpoints/cli.ts'
 import { createCronScheduler } from './triggers/cron.ts'
+import { createSkillRegistry } from './skills/index.ts'
+import { createScheduleMessageTools } from './tools/schedule-message.ts'
 import type { ChatMessage } from './llm/index.ts'
 
 function parseTelegramAllowedUserIds(): number[] | undefined {
@@ -222,18 +224,42 @@ program
         logFile: options.logFile,
       })
 
+      const loggerConfig = { level: options.logLevel, filePath: options.logFile }
+      const telegramLogger = createLogger(loggerConfig)
+
+      const skillRegistry = createSkillRegistry()
+      skillRegistry.register({
+        name: 'reminder',
+        description: 'Set, list, and cancel time-based reminders',
+        tools: ['schedule_message', 'list_scheduled_messages', 'cancel_scheduled_message'],
+        filePath: 'src/skills/reminder.md',
+      })
+
+      // Create schedule-message tools — dispatcher ref captured after creation
+      let dispatcherRef: { sendProactive: (p: { sessionId: string, endpointKind: string, text: string }) => Promise<void> }
+      const scheduleHandle = createScheduleMessageTools({
+        sendProactive: (params) => dispatcherRef.sendProactive(params),
+        dataDir: 'data',
+        logger: telegramLogger,
+      })
+
       const dispatcher = createDispatcher({
         client,
         sessionStore,
         model,
         baseSystemPrompt: options.systemPrompt,
-        logger: { level: options.logLevel, filePath: options.logFile },
+        logger: loggerConfig,
+        extraTools: scheduleHandle.tools,
+        skillRegistry,
       })
+      dispatcherRef = dispatcher
       dispatcher.registerEndpoint(telegramEndpoint)
 
+      await scheduleHandle.initialize()
       const stop = await dispatcher.start()
 
       const shutdown = () => {
+        scheduleHandle.shutdown()
         stop()
         process.exit(0)
       }
@@ -270,13 +296,32 @@ program
       const loggerConfig = { level: options.logLevel, filePath: options.logFile }
       const logger = createLogger(loggerConfig)
 
+      const skillRegistry = createSkillRegistry()
+      skillRegistry.register({
+        name: 'reminder',
+        description: 'Set, list, and cancel time-based reminders',
+        tools: ['schedule_message', 'list_scheduled_messages', 'cancel_scheduled_message'],
+        filePath: 'src/skills/reminder.md',
+      })
+
+      // Create schedule-message tools — dispatcher ref captured after creation
+      let dispatcherRef: { sendProactive: (p: { sessionId: string, endpointKind: string, text: string }) => Promise<void> }
+      const scheduleHandle = createScheduleMessageTools({
+        sendProactive: (params) => dispatcherRef.sendProactive(params),
+        dataDir: 'data',
+        logger,
+      })
+
       const dispatcher = createDispatcher({
         client,
         sessionStore,
         model,
         baseSystemPrompt: options.systemPrompt,
         logger: loggerConfig,
+        extraTools: scheduleHandle.tools,
+        skillRegistry,
       })
+      dispatcherRef = dispatcher
 
       // Register Telegram endpoint if token is available
       const token = process.env.TELEGRAM_BOT_TOKEN
@@ -293,6 +338,9 @@ program
       } else {
         logger.warn('TELEGRAM_BOT_TOKEN not set, skipping Telegram endpoint')
       }
+
+      // Initialize tools that need startup
+      await scheduleHandle.initialize()
 
       // Start all endpoints
       const stopEndpoints = await dispatcher.start()
@@ -319,6 +367,7 @@ program
 
       const shutdown = () => {
         logger.info('Shutting down...')
+        scheduleHandle.shutdown()
         cronScheduler?.stop()
         stopEndpoints()
         process.exit(0)

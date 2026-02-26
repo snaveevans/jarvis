@@ -11,28 +11,34 @@ Jarvis is a Node.js + TypeScript AI assistant project using native TypeScript ex
 ```
 src/
 ├── cli.ts                 # Main CLI entry point (Commander.js)
+├── dispatcher.ts          # Central coordinator (sessions, tools, skills)
 ├── llm/
 │   ├── client.ts          # LLMClient - OpenAI SDK wrapper
-│   ├── chat-with-tools.ts # Tool execution orchestration
+│   ├── chat-with-tools.ts # Tool execution orchestration (supports dynamic tools)
 │   ├── types.ts           # TypeScript interfaces
 │   ├── errors.ts          # Custom error classes
 │   ├── index.ts           # Public exports
 │   └── *.test.ts          # Unit tests
-└── tools/
-    ├── types.ts           # Tool type definitions
-    ├── common.ts          # Shared safety and output helpers
-    ├── read.ts            # Read tool (files/directories)
-    ├── glob.ts            # File path pattern search
-    ├── grep.ts            # Content regex search
-    ├── edit.ts            # Exact-match surgical edits
-    ├── write.ts           # File creation/overwrite
-    ├── shell.ts           # Guarded shell execution
-    ├── web-fetch.ts       # Read-only web fetching
-    ├── ask-user.ts        # User clarification interface
-    ├── todo-list.ts       # In-session task tracking interface
-    ├── sub-agent.ts       # Sub-agent delegation interface
-    ├── read-file.ts       # Backward-compatible read_file alias
-    └── index.ts           # Tool registry and execution
+├── tools/
+│   ├── types.ts           # Tool type definitions (+ ToolExecutionContext)
+│   ├── common.ts          # Shared safety and output helpers
+│   ├── read.ts            # Read tool (files/directories)
+│   ├── glob.ts            # File path pattern search
+│   ├── grep.ts            # Content regex search
+│   ├── edit.ts            # Exact-match surgical edits
+│   ├── write.ts           # File creation/overwrite
+│   ├── shell.ts           # Guarded shell execution
+│   ├── web-fetch.ts       # Read-only web fetching
+│   ├── ask-user.ts        # User clarification interface
+│   ├── todo-list.ts       # In-session task tracking interface
+│   ├── sub-agent.ts       # Sub-agent delegation interface
+│   ├── read-file.ts       # Backward-compatible read_file alias
+│   ├── schedule-message.ts # Generic scheduled-message tools factory (+ persistence)
+│   └── index.ts           # Base tool registry and execution
+└── skills/
+    ├── types.ts           # SkillFrontmatter interface
+    ├── index.ts           # SkillRegistry: reads frontmatter, builds prompt block
+    └── reminder.md        # Reminder skill instructions (frontmatter + usage guide)
 ```
 
 ## Build/Test/Lint Commands
@@ -237,11 +243,13 @@ There is currently no lint script in `package.json`.
 
 ### High-level architecture
 
-- `src/cli.ts` is the executable entrypoint (`jarvis`) and command router (Commander). It loads `.env`, parses CLI flags, and calls into the LLM layer.
+- `src/cli.ts` is the executable entrypoint (`jarvis`) and command router (Commander). It loads `.env`, parses CLI flags, and calls into the LLM layer. In `serve`/`telegram` modes it creates extra tools (reminder), registers skill metadata, and passes both to the dispatcher.
+- `src/dispatcher.ts` is the central coordinator: resolves sessions, builds system prompts (including skill prompt block), merges base + extra tools, threads `ToolExecutionContext` per request, and routes responses back through endpoints.
 - `src/llm/client.ts` wraps the OpenAI SDK against synthetic.new's OpenAI-compatible endpoint and maps SDK/API failures into local typed errors in `src/llm/errors.ts`.
-- `src/llm/chat-with-tools.ts` runs the tool-calling loop: send tool defs, execute returned tool calls, append tool outputs, and continue up to `MAX_TOOL_ITERATIONS` (5).
-- `src/tools/index.ts` is the tool registry/dispatcher. `availableTools` drives `getToolDefinitions()` and `executeTool()`.
-- `src/tools/read-file.ts` is the current concrete tool implementation; it follows the `Tool` contract from `src/tools/types.ts`.
+- `src/llm/chat-with-tools.ts` runs the tool-calling loop: send tool defs, execute returned tool calls, append tool outputs, and continue up to `MAX_TOOL_ITERATIONS` (5). Accepts optional `tools`, `executeTool`, and `toolContext` to support dynamic tool sets.
+- `src/tools/index.ts` is the base tool registry/dispatcher. `availableTools` drives `getToolDefinitions()` and `executeTool()`. Tools accept an optional `ToolExecutionContext` with `sessionId` and `endpointKind`.
+- `src/tools/schedule-message.ts` provides `createScheduleMessageTools(config)` — a factory that returns three tools (`schedule_message`, `list_scheduled_messages`, `cancel_scheduled_message`) with atomic JSON persistence to `data/scheduled-messages.json` and restart recovery. Requires `sendProactive`, `dataDir`, and `logger` at construction.
+- `src/skills/index.ts` is the skill registry. `createSkillRegistry()` reads markdown frontmatter and builds a compact system prompt block. Skills are pure markdown instruction files — they don't own tools.
 - `src/llm/types.ts` holds shared message/request/response and tool schemas used by CLI, client, and tool orchestration; `src/llm/index.ts` is the public export surface.
 
 ### Key repository conventions
@@ -251,5 +259,8 @@ There is currently no lint script in `package.json`.
 - `chat` and `chat-with-tools` require a model via `--model` or `DEFAULT_MODEL`; `LLMClient` requires `SYNTHETIC_API_KEY` unless passed in programmatically.
 - Tool-call arguments are JSON strings (`call.function.arguments`) and are parsed in `executeTool`; tool handlers return `{ content, error? }` instead of throwing through the loop.
 - Tests use Node's native test runner (`node:test` + `node:assert`) with files colocated as `*.test.ts`.
+- Skills are markdown files in `src/skills/<name>.md` with YAML frontmatter (name, description, tool list) + a usage guide body. They do not contain tool implementations — tools live in `src/tools/`.
+- Tools that need services (dispatcher, data dir) are created via factory functions (e.g., `createScheduleMessageTools()`) and passed to the dispatcher as `extraTools`.
+- Tool data is persisted to the `data/` directory (gitignored). Use atomic writes (tmp+rename).
 - For architecture-level decisions, use and update `docs/decisions.md` (lightweight decision log format).
 - Keep code changes incremental and focused, consistent with the project direction in `README.md`.
