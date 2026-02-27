@@ -39,16 +39,32 @@ export interface DispatcherConfig {
 export interface Dispatcher {
   registerEndpoint(endpoint: Endpoint): void
   handleInbound(message: InboundMessage): Promise<void>
-  sendProactive(params: { sessionId: string, endpointKind: string, text: string }): Promise<void>
+  sendProactive(params: { sessionId: string, endpointKind: string, text: string, skipLLM?: boolean }): Promise<void>
   waitForIdle(timeoutMs?: number): Promise<void>
   flushMemoryWrites(timeoutMs?: number): Promise<void>
   start(): Promise<() => void>
 }
 
+function formatCurrentTimeContext(now: Date): string {
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'local'
+  const localTime = now.toLocaleString('en-US', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+    timeZoneName: 'short',
+  })
+
+  return `Current local time: ${localTime}. Timezone: ${zone}.`
+}
+
 export function buildSystemPrompt(
   basePrompt: string,
   profile: EndpointProfile,
-  runtime?: { providerName?: string, model?: string }
+  runtime?: { providerName?: string, model?: string, now?: Date }
 ): string {
   const lines: string[] = []
 
@@ -60,6 +76,7 @@ export function buildSystemPrompt(
   }
 
   lines.push(`Use ${profile.formatting} formatting.`)
+  lines.push(formatCurrentTimeContext(runtime?.now ?? new Date()))
   if (runtime?.providerName || runtime?.model) {
     const providerName = runtime.providerName ?? 'unknown'
     const model = runtime.model ?? 'unknown'
@@ -333,7 +350,7 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
       }
     },
 
-    async sendProactive(params: { sessionId: string, endpointKind: string, text: string }): Promise<void> {
+    async sendProactive(params: { sessionId: string, endpointKind: string, text: string, skipLLM?: boolean }): Promise<void> {
       beginOperation()
       try {
         const endpoint = endpoints.get(params.endpointKind)
@@ -352,6 +369,16 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
           session.messages.unshift({ role: 'system', content: systemPrompt })
         } else if (session.messages[0]?.role === 'system' && session.messages[0].content !== systemPrompt) {
           session.messages[0] = { role: 'system', content: systemPrompt }
+        }
+
+        if (params.skipLLM === true) {
+          config.sessionStore.addMessage(session.id, { role: 'assistant', content: params.text })
+          await endpoint.send({
+            text: params.text,
+            sessionId: params.sessionId,
+            endpointKind: params.endpointKind,
+          })
+          return
         }
 
         // Add the proactive message as a user message

@@ -251,4 +251,46 @@ describe('schedule-message tools', () => {
 
     h2.shutdown()
   })
+
+  test('failed delivery is retried and not dropped', async () => {
+    let attempts = 0
+    const sent: Array<{ sessionId: string, text: string }> = []
+    const sendProactive = async (params: { sessionId: string, endpointKind: string, text: string }) => {
+      attempts++
+      if (attempts === 1) {
+        throw new Error('temporary send failure')
+      }
+      sent.push({ sessionId: params.sessionId, text: params.text })
+    }
+
+    const h1 = createScheduleMessageTools({
+      ...createTestConfig(dataDir, sendProactive),
+      retryDelayMs: 20,
+    })
+    await h1.initialize()
+    const schedule = h1.tools.find(t => t.name === 'schedule_message')!
+    await schedule.execute({ text: 'retry me', delay_minutes: 1 }, ctx)
+    h1.shutdown()
+
+    const storePath = path.join(dataDir, 'scheduled-messages.json')
+    const data = JSON.parse(await readFile(storePath, 'utf-8'))
+    data.messages[0].fireAt = Date.now() - 1000
+    await writeFile(storePath, JSON.stringify(data), 'utf-8')
+
+    const h2 = createScheduleMessageTools({
+      ...createTestConfig(dataDir, sendProactive),
+      retryDelayMs: 20,
+    })
+    await h2.initialize()
+    await new Promise(resolve => setTimeout(resolve, 80))
+
+    assert.ok(attempts >= 2)
+    assert.equal(sent.length, 1)
+    assert.equal(sent[0].text, 'retry me')
+
+    const finalStore = JSON.parse(await readFile(storePath, 'utf-8'))
+    assert.equal(finalStore.messages.length, 0)
+
+    h2.shutdown()
+  })
 })

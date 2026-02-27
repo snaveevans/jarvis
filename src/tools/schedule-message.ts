@@ -19,9 +19,10 @@ interface ScheduledMessageStore {
 }
 
 export interface ScheduleMessageConfig {
-  sendProactive: (params: { sessionId: string, endpointKind: string, text: string }) => Promise<void>
+  sendProactive: (params: { sessionId: string, endpointKind: string, text: string, skipLLM?: boolean }) => Promise<void>
   dataDir: string
   logger: pino.Logger
+  retryDelayMs?: number
 }
 
 export interface ScheduleMessageHandle {
@@ -32,6 +33,7 @@ export interface ScheduleMessageHandle {
 
 export function createScheduleMessageTools(config: ScheduleMessageConfig): ScheduleMessageHandle {
   const storePath = path.join(config.dataDir, 'scheduled-messages.json')
+  const retryDelayMs = Math.max(1, config.retryDelayMs ?? 60_000)
   const timers = new Map<string, ReturnType<typeof setTimeout>>()
   let messages: ScheduledMessage[] = []
 
@@ -60,17 +62,40 @@ export function createScheduleMessageTools(config: ScheduleMessageConfig): Sched
 
     const timer = setTimeout(async () => {
       timers.delete(msg.id)
+      try {
+        await config.sendProactive({
+          sessionId: msg.sessionId,
+          endpointKind: msg.endpointKind,
+          text: msg.text,
+          skipLLM: true,
+        })
 
-      messages = messages.filter(m => m.id !== msg.id)
-      await saveStore().catch(() => {})
-
-      await config.sendProactive({
-        sessionId: msg.sessionId,
-        endpointKind: msg.endpointKind,
-        text: msg.text,
-      }).catch(err => {
-        config.logger.error({ messageId: msg.id, error: String(err) }, 'Failed to deliver scheduled message')
-      })
+        messages = messages.filter(m => m.id !== msg.id)
+        await saveStore()
+      } catch (err) {
+        config.logger.error(
+          { messageId: msg.id, error: String(err), retryDelayMs },
+          'Failed to deliver scheduled message; retrying'
+        )
+        const idx = messages.findIndex(m => m.id === msg.id)
+        if (idx === -1) {
+          return
+        }
+        const retried: ScheduledMessage = {
+          ...messages[idx],
+          fireAt: Date.now() + retryDelayMs,
+        }
+        messages[idx] = retried
+        try {
+          await saveStore()
+          scheduleDelivery(retried)
+        } catch (retryError) {
+          config.logger.error(
+            { messageId: msg.id, error: String(retryError) },
+            'Failed to persist scheduled message retry'
+          )
+        }
+      }
     }, delayMs)
 
     timers.set(msg.id, timer)

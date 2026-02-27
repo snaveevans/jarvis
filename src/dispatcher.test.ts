@@ -112,6 +112,16 @@ describe('buildSystemPrompt', () => {
     assert.ok(result.includes('Current LLM provider: minimax.'))
     assert.ok(result.includes('Current model: MiniMax-M2.5.'))
   })
+
+  test('includes current local time context', () => {
+    const profile = makeProfile()
+    const result = buildSystemPrompt('Base.', profile, {
+      now: new Date('2026-02-26T17:06:00.000Z'),
+    })
+
+    assert.ok(result.includes('Current local time:'))
+    assert.ok(result.includes('Timezone:'))
+  })
 })
 
 describe('createDispatcher', () => {
@@ -341,6 +351,35 @@ describe('createDispatcher', () => {
 
     const session = store.get('test:cron')!
     assert.equal(session.messages.length, 3) // system + user + assistant
+  })
+
+  test('sendProactive can bypass LLM for direct delivery', async () => {
+    const store = createInMemorySessionStore()
+    const client = makeMockClient('Should not be used')
+    const endpoint = makeMockEndpoint()
+
+    const dispatcher = createDispatcher({
+      client,
+      sessionStore: store,
+      model: 'test-model',
+      logger: { level: 'silent' },
+    })
+    dispatcher.registerEndpoint(endpoint)
+
+    await dispatcher.sendProactive({
+      sessionId: 'test:reminder',
+      endpointKind: 'test',
+      text: 'Reminder: go to the store',
+      skipLLM: true,
+    })
+
+    assert.equal(endpoint.sent.length, 1)
+    assert.equal(endpoint.sent[0].text, 'Reminder: go to the store')
+
+    const session = store.get('test:reminder')!
+    assert.equal(session.messages.length, 2) // system + assistant
+    assert.equal(session.messages[1].role, 'assistant')
+    assert.equal(session.messages[1].content, 'Reminder: go to the store')
   })
 
   test('start calls listen on endpoints with listen method', async () => {

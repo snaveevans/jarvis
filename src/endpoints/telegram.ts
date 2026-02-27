@@ -6,6 +6,18 @@ import type { Endpoint, EndpointProfile, InboundMessage, OutboundMessage } from 
 
 const TELEGRAM_MESSAGE_LIMIT = 4096
 
+export function resolveTelegramChatIdFromSessionId(sessionId: string): number | undefined {
+  if (!sessionId.startsWith('telegram:')) {
+    return undefined
+  }
+  const chatIdStr = sessionId.slice('telegram:'.length)
+  if (!/^-?\d+$/.test(chatIdStr)) {
+    return undefined
+  }
+  const chatId = Number(chatIdStr)
+  return Number.isSafeInteger(chatId) ? chatId : undefined
+}
+
 export interface TelegramEndpointConfig {
   token: string
   allowedUserIds?: number[]
@@ -71,10 +83,14 @@ export function createTelegramEndpoint(config: TelegramEndpointConfig): Endpoint
     profile,
 
     async send(message: OutboundMessage): Promise<void> {
-      const chatId = sessionToChatId.get(message.sessionId)
+      const mappedChatId = sessionToChatId.get(message.sessionId)
+      const chatId = mappedChatId ?? resolveTelegramChatIdFromSessionId(message.sessionId)
       if (!chatId) {
         logger.error({ sessionId: message.sessionId }, 'No chatId mapped for session')
-        return
+        throw new Error(`No Telegram chatId available for session: ${message.sessionId}`)
+      }
+      if (!mappedChatId) {
+        sessionToChatId.set(message.sessionId, chatId)
       }
 
       const chunks = splitMessage(message.text)

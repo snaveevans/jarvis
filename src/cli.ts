@@ -761,7 +761,9 @@ program
       registerBuiltInSkills(skillRegistry, true)
 
       // Create schedule-message tools — dispatcher ref captured after creation
-      let dispatcherRef: { sendProactive: (p: { sessionId: string, endpointKind: string, text: string }) => Promise<void> }
+      let dispatcherRef: {
+        sendProactive: (p: { sessionId: string, endpointKind: string, text: string, skipLLM?: boolean }) => Promise<void>
+      }
       const scheduleHandle = createScheduleMessageTools({
         sendProactive: (params) => dispatcherRef.sendProactive(params),
         dataDir: 'data',
@@ -902,7 +904,9 @@ program
       registerBuiltInSkills(skillRegistry, true)
 
       // Create schedule-message tools — dispatcher ref captured after creation
-      let dispatcherRef: { sendProactive: (p: { sessionId: string, endpointKind: string, text: string }) => Promise<void> }
+      let dispatcherRef: {
+        sendProactive: (p: { sessionId: string, endpointKind: string, text: string, skipLLM?: boolean }) => Promise<void>
+      }
       const scheduleHandle = createScheduleMessageTools({
         sendProactive: (params) => dispatcherRef.sendProactive(params),
         dataDir: 'data',
