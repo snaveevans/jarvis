@@ -5,9 +5,13 @@ import path from 'node:path'
 
 import type { WorkerRequest, WorkerResponse } from './types.ts'
 
+const isCompiled = !import.meta.url.endsWith('.ts')
+const workerExt = isCompiled ? '.js' : '.ts'
+const workerExecArgv = isCompiled ? [] : ['--experimental-strip-types']
+
 const WORKER_FILE = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
-  'search-worker.ts'
+  `search-worker${workerExt}`
 )
 
 interface PendingRequest {
@@ -42,7 +46,7 @@ export function createSearchWorkerPool(config: SearchWorkerPoolConfig = {}): Sea
 
   function spawnWorker(): Worker {
     const w = new Worker(WORKER_FILE, {
-      execArgv: ['--experimental-strip-types'],
+      execArgv: workerExecArgv,
     })
 
     const pending = new Map<string, PendingRequest>()

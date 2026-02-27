@@ -2,9 +2,9 @@
 
 ## Project Overview
 
-Jarvis is a Node.js + TypeScript AI assistant project using native TypeScript execution (no build step required). It provides an LLM client wrapper around OpenAI-compatible APIs (synthetic.new) with tool calling capabilities.
+Jarvis is a Node.js + TypeScript AI assistant project. It provides an LLM client wrapper around OpenAI-compatible APIs (synthetic.new) with tool calling capabilities.
 
-**Runtime**: Node.js v22+ with `--experimental-strip-types`
+**Runtime**: Node.js v22+ with a `tsc` build step (`npm run build` compiles `src/` → `dist/`). Dev mode uses `--experimental-strip-types` for direct TS execution.
 
 ## Project Structure
 
@@ -61,19 +61,25 @@ src/
 ## Build/Test/Lint Commands
 
 ```bash
-# Run TypeScript files directly (native execution)
-node --experimental-strip-types src/index.ts
-node --experimental-strip-types src/cli.ts --help
+# Build (compile src/ → dist/)
+npm run build
 
-# Run all tests
+# Clean build output
+npm run clean
+
+# Run production CLI (requires build)
+node dist/cli.js --help
+bin/jarvis --help
+
+# Run in dev mode (no build needed)
+npm run dev
+
+# Run all tests (from source, no build needed)
 npm test
 
 # Run a single test file
 node --experimental-strip-types --test src/llm/client.test.ts
 node --experimental-strip-types --test src/llm/types.test.ts
-
-# Run specific test by pattern (not supported natively, run full file)
-node --experimental-strip-types --test src/llm/client.test.ts
 
 # Lint (once linter is configured)
 # npm run lint
@@ -230,25 +236,32 @@ describe('Component', () => {
 5. Update this file when adding new tooling
 6. Commit with conventional commit messages (e.g., `feat:`, `fix:`, `docs:`)
 
-## Node.js Native TypeScript
+## Build & Runtime
 
-- Execute: `node --experimental-strip-types file.ts`
-- Shebang: `#!/usr/bin/env node --experimental-strip-types`
-- No compilation step needed - types are stripped at runtime
-- Type errors won't prevent execution; use IDE/editor for type checking
-- Parameter properties are NOT supported (don't use `constructor(public readonly foo: string)`)
+- **Production**: `npm run build` compiles `src/` → `dist/` via `tsc`. `bin/jarvis` runs `node dist/cli.js`.
+- **Dev mode**: `npm run dev` runs `node --experimental-strip-types src/cli.ts` (no build needed).
+- **Tests**: `npm test` runs from source via `--experimental-strip-types` (no build needed).
+- Source files use `.ts` import extensions; `rewriteRelativeImportExtensions` rewrites them to `.js` in compiled output.
+- Worker threads auto-detect compiled vs source mode and adjust paths/execArgv accordingly.
+- Parameter properties are NOT supported (don't use `constructor(public readonly foo: string)`).
 
 ## Copilot Session Instructions (Merged)
 
 ### Build, test, and lint commands
 
-Jarvis runs TypeScript directly in Node.js (no build step).
+Jarvis compiles with `tsc` for production and uses `--experimental-strip-types` for dev/test.
 
 ```bash
-# CLI smoke check
-node --experimental-strip-types src/cli.ts --help
+# Build for production
+npm run build
 
-# Full test suite
+# CLI smoke check (compiled)
+bin/jarvis --help
+
+# Dev mode (from source, no build)
+npm run dev
+
+# Full test suite (from source, no build)
 npm test
 
 # Run one test file
@@ -273,7 +286,7 @@ There is currently no lint script in `package.json`.
 
 ### Key repository conventions
 
-- Runtime is Node.js v22+ with `--experimental-strip-types`, including the shebang in `src/cli.ts`.
+- Runtime is Node.js v22+. Production uses compiled `dist/` output (`npm run build`); dev/test use `--experimental-strip-types` from source.
 - Use ESM imports with explicit `.ts` extensions throughout `src/**`.
 - `chat` and `chat-with-tools` require a model via `--model` or `DEFAULT_MODEL`; `LLMClient` requires `SYNTHETIC_API_KEY` unless passed in programmatically.
 - Tool-call arguments are JSON strings (`call.function.arguments`) and are parsed in `executeTool`; tool handlers return `{ content, error? }` instead of throwing through the loop.

@@ -16,9 +16,13 @@ import type {
 } from '../memory/types.ts'
 import type { WorkerRequest, WorkerResponse } from './types.ts'
 
+const isCompiled = !import.meta.url.endsWith('.ts')
+const workerExt = isCompiled ? '.js' : '.ts'
+const workerExecArgv = isCompiled ? [] : ['--experimental-strip-types']
+
 const WORKER_FILE = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
-  'memory-worker.ts'
+  `memory-worker${workerExt}`
 )
 
 interface PendingRequest {
@@ -46,7 +50,7 @@ export function createMemoryWorkerClient(config: MemoryWorkerClientConfig = {}):
 
   function spawnWorker(): Worker {
     const w = new Worker(WORKER_FILE, {
-      execArgv: ['--experimental-strip-types'],
+      execArgv: workerExecArgv,
       workerData: {
         memoryDir: config.memoryDir,
         archiveRetentionDays: config.archiveRetentionDays,
@@ -276,7 +280,7 @@ export function createMemoryWorkerClient(config: MemoryWorkerClientConfig = {}):
       // Wait for the worker to exit on its own (it calls process.exit after closing DB)
       await new Promise<void>((resolve) => {
         const timeout = setTimeout(() => {
-          void w.terminate().then(resolve, resolve)
+          void w.terminate().then(() => resolve(), () => resolve())
         }, 2000)
         w.once('exit', () => {
           clearTimeout(timeout)

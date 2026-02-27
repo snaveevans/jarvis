@@ -28,18 +28,17 @@ function parseSyntheticResponse(input: unknown): WebSearchResult[] {
     return []
   }
 
-  return rows
-    .map((row) => {
-      const title = typeof row.title === 'string' ? row.title.trim() : ''
-      const url = typeof row.url === 'string' ? row.url.trim() : ''
-      const description = typeof row.text === 'string' ? row.text.trim() : ''
-      const published = typeof row.published === 'string' ? row.published : undefined
-      if (!title || !url) {
-        return null
-      }
-      return { title, url, description, published }
-    })
-    .filter((row): row is WebSearchResult => row !== null)
+  const results: WebSearchResult[] = []
+  for (const row of rows) {
+    const title = typeof row.title === 'string' ? row.title.trim() : ''
+    const url = typeof row.url === 'string' ? row.url.trim() : ''
+    const description = typeof row.text === 'string' ? row.text.trim() : ''
+    const published = typeof row.published === 'string' ? row.published : undefined
+    if (title && url) {
+      results.push({ title, url, description, published })
+    }
+  }
+  return results
 }
 
 export function createSyntheticSearchProvider(config: SyntheticSearchConfig): WebSearchProvider {

@@ -1,10 +1,12 @@
-#!/usr/bin/env node --experimental-strip-types
-
 import { createInterface } from 'node:readline/promises'
+import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { stdin as input, stdout as output } from 'node:process'
 
 import { Command } from 'commander'
+
+import { runUpdate } from './commands/update.ts'
+import { runUninstall } from './commands/uninstall.ts'
 
 import { LLMClient } from './llm/index.ts'
 import { createLogger } from './logger.ts'
@@ -187,12 +189,15 @@ function createEvictionHandler(params: {
 }
 
 
+const jarvisHome = process.env.JARVIS_HOME || process.cwd()
+const pkgJson = JSON.parse(readFileSync(path.join(jarvisHome, 'package.json'), 'utf-8'))
+
 const program = new Command()
 
 program
   .name('jarvis')
   .description('AI assistant CLI using synthetic.new API')
-  .version('1.0.0')
+  .version(pkgJson.version)
 
 program
   .command('chat')
@@ -1007,6 +1012,20 @@ program
       }
       throw error
     }
+  })
+
+program
+  .command('update')
+  .description('Update Jarvis to the latest version (git pull + npm install)')
+  .action(async () => {
+    await runUpdate()
+  })
+
+program
+  .command('uninstall')
+  .description('Remove Jarvis PATH entries and print cleanup instructions')
+  .action(async () => {
+    await runUninstall()
   })
 
 program.parse()

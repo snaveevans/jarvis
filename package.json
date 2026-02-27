@@ -14,14 +14,20 @@
     "doc": "docs"
   },
   "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
     "dev": "NODE_ENV=development node --experimental-strip-types src/cli.ts",
-    "test": "node --experimental-strip-types --test src/**/*.test.ts",
-    "setup": "node -e \"const fs=require('fs'); if(!fs.existsSync('.env')){fs.copyFileSync('.env.example','.env');console.log('Created .env from .env.example — edit it to add your API key.');}else{console.log('.env already exists, skipping.');}\"",
-    "postinstall": "node -e \"const fs=require('fs'); if(!fs.existsSync('.env')&&fs.existsSync('.env.example')){fs.copyFileSync('.env.example','.env');console.log('\\nCreated .env from .env.example — edit it to add your API key.\\n');}\""
+    "test": "node --experimental-strip-types --test src/**/*.test.ts"
   },
   "keywords": [],
   "author": "",
   "license": "MIT",
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.0.0",
+    "@types/turndown": "^5.0.6",
+    "typescript": "^5.8.0"
+  },
   "dependencies": {
     "better-sqlite3": "^12.6.2",
     "c12": "^4.0.0-beta.3",

@@ -1,11 +1,13 @@
+import path from 'node:path'
 import { loadConfig } from 'c12'
 import { z } from 'zod'
 import { config as loadEnv } from 'dotenv'
 import { LLM_PROVIDERS } from './llm/provider.ts'
 
-// Load .env file only in development mode
+// Load .env only in development mode; production relies on real env vars
+const jarvisHome = process.env.JARVIS_HOME || process.cwd()
 if (process.env.NODE_ENV === 'development') {
-  loadEnv()
+  loadEnv({ path: path.join(jarvisHome, '.env') })
 }
 
 const PROVIDER_DEFAULT_BASE_URLS = {
@@ -37,10 +39,10 @@ const configSchema = z.object({
     defaultPrompt: z.string().default(''),
     provider: z.enum(LLM_PROVIDERS).default('synthetic'),
     providers: z.object({
-      synthetic: providerConfigSchema.default({}),
-      minimax: providerConfigSchema.default({}),
-      openaiCompatible: providerConfigSchema.default({}),
-    }).default({}),
+      synthetic: providerConfigSchema.default({ apiKey: '', baseUrl: '', defaultModel: '' }),
+      minimax: providerConfigSchema.default({ apiKey: '', baseUrl: '', defaultModel: '' }),
+      openaiCompatible: providerConfigSchema.default({ apiKey: '', baseUrl: '', defaultModel: '' }),
+    }).default({ synthetic: { apiKey: '', baseUrl: '', defaultModel: '' }, minimax: { apiKey: '', baseUrl: '', defaultModel: '' }, openaiCompatible: { apiKey: '', baseUrl: '', defaultModel: '' } }),
   }),
   telegram: z.object({
     botToken: z.string(),
@@ -195,9 +197,10 @@ export async function getConfig(): Promise<JarvisConfig> {
     return cachedConfig
   }
 
-  // Load base config from JSON files
+  // Load base config from JSON files (resolve relative to JARVIS_HOME)
   const { config: rawConfig } = await loadConfig({
     name: 'jarvis',
+    cwd: jarvisHome,
     configFile: '.config/default',
     envName: process.env.NODE_ENV ?? 'development',
   })

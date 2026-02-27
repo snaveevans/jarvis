@@ -406,7 +406,7 @@ export function createMemoryService(config: MemoryServiceConfig = {}): MemorySer
           finishReason: choice?.finish_reason,
           rawContentType: typeof rawContent,
           rawContentLength: rawContent?.length ?? 0,
-          hasToolCalls: !!(choice?.message as Record<string, unknown>)?.tool_calls,
+          hasToolCalls: !!(choice?.message as unknown as Record<string, unknown>)?.tool_calls,
           summaryEmpty: !summary,
         },
         'Auto-memory LLM summary response details'

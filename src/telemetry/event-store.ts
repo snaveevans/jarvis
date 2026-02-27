@@ -42,6 +42,13 @@ export interface SessionEvent extends BaseEvent {
 
 export type TelemetryEvent = ToolCallEvent | LLMCallEvent | ErrorEvent | SessionEvent
 
+// Omit doesn't distribute over unions, so we do it manually
+export type TelemetryEventInput =
+  | Omit<ToolCallEvent, 'timestampMs'>
+  | Omit<LLMCallEvent, 'timestampMs'>
+  | Omit<ErrorEvent, 'timestampMs'>
+  | Omit<SessionEvent, 'timestampMs'>
+
 export interface EventStoreQuery {
   type?: EventType
   sessionId?: string
@@ -50,7 +57,7 @@ export interface EventStoreQuery {
 }
 
 export interface EventStore {
-  record(event: Omit<TelemetryEvent, 'timestampMs'>): void
+  record(event: TelemetryEventInput): void
   query(filter?: EventStoreQuery): TelemetryEvent[]
   recent(n?: number): TelemetryEvent[]
   stats(): EventStoreStats
@@ -67,7 +74,7 @@ export function createEventStore(maxEvents = 500): EventStore {
   let totalRecorded = 0
 
   return {
-    record(event: Omit<TelemetryEvent, 'timestampMs'>): void {
+    record(event: TelemetryEventInput): void {
       const full = { ...event, timestampMs: Date.now() } as TelemetryEvent
       totalRecorded++
       if (buffer.length >= maxEvents) {

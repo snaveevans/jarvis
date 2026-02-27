@@ -147,7 +147,7 @@ export class LLMClient {
 
       const response = await this._withRetry(() =>
         this.client.chat.completions.create(
-          params as Parameters<typeof this.client.chat.completions.create>[0]
+          params as unknown as Parameters<typeof this.client.chat.completions.create>[0]
         )
       )
 
@@ -175,8 +175,8 @@ export class LLMClient {
       if (this.provider === 'minimax') params.extra_body = { reasoning_split: true }
 
       const stream = await this.client.chat.completions.create(
-        params as Parameters<typeof this.client.chat.completions.create>[0]
-      )
+        params as unknown as Parameters<typeof this.client.chat.completions.create>[0]
+      ) as unknown as AsyncIterable<unknown>
 
       for await (const chunk of stream) {
         yield chunk as unknown as ChatCompletionChunk

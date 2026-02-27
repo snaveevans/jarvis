@@ -11,4 +11,9 @@ while [ -L "$SCRIPT" ]; do
   esac
 done
 DIR="$(cd -P "$(dirname "$SCRIPT")" && pwd)"
-exec node --experimental-strip-types "$DIR/../src/cli.ts" "$@"
+JARVIS_ROOT="$(cd -P "$DIR/.." && pwd)"
+
+export JARVIS_HOME="${JARVIS_HOME:-$JARVIS_ROOT}"
+export NODE_ENV="${NODE_ENV:-development}"
+cd "$JARVIS_ROOT"
+exec node "$JARVIS_ROOT/dist/cli.js" "$@"
