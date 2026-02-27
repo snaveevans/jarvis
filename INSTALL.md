@@ -8,7 +8,7 @@ A step-by-step guide to getting Jarvis running on your machine.
 
 | Requirement | Version | Notes |
 |---|---|---|
-| **Node.js** | **v22 or later** | Uses native TypeScript execution (`--experimental-strip-types`) |
+| **Node.js** | **v22 or later** | Required for native TypeScript support |
 | **npm** | v10+ | Bundled with Node.js v22 |
 | **Git** | Any | To clone the repository |
 | **API key** | — | Configure in [Step 2](#step-2--configure-your-api-key) |
@@ -29,19 +29,46 @@ nvm use 22
 
 ---
 
-## Quick Start (5 steps)
+## Quick Start
 
-### Development Setup (with .env file)
+### One-line install (recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/snaveevans/jarvis/main/install.sh | bash
+```
+
+This clones the repo to `~/.jarvis`, installs dependencies, builds, and adds `jarvis` to your PATH. After it completes:
+
+```bash
+# Reload your shell (or open a new terminal)
+source ~/.zshrc   # or ~/.bashrc / ~/.bash_profile
+
+# Set your API key
+export SYNTHETIC_API_KEY=your-key-here
+export DEFAULT_MODEL=hf:nvidia/Kimi-K2.5-NVFP4
+
+# Verify
+jarvis --version
+jarvis list-models
+jarvis chat "Hello!"
+```
+
+> To install to a custom location: `JARVIS_HOME=/opt/jarvis curl -fsSL ... | bash`
+
+---
+
+### Manual Setup (Development, with .env file)
 
 ```bash
 # 1. Clone the repository
 git clone <repo-url>
 cd jarvis
 
-# 2. Install dependencies (also auto-creates .env from .env.example)
+# 2. Install dependencies
 npm install
 
-# 3. Add your API key(s) to .env
+# 3. Copy .env.example and add your API key(s)
+cp .env.example .env
 #    Required: LLM provider key (for chat)
 #    Optional but recommended: BRAVE_API_KEY (for web_search)
 
@@ -53,13 +80,14 @@ npm run dev chat "Hello!"
 npm run dev chat "What is the capital of France?"
 ```
 
-### Production Setup (with environment variables)
+### Manual Setup (Production, with environment variables)
 
 ```bash
-# 1. Clone and install
+# 1. Clone, install, and build
 git clone <repo-url>
 cd jarvis
 npm install
+npm run build
 
 # 2. Link the CLI globally
 npm link
@@ -98,13 +126,15 @@ cd jarvis
 npm install
 ```
 
-`npm install` automatically creates a `.env` file from `.env.example` if one doesn't exist yet.
-
 ---
 
 #### Step 2 — Configure your API key
 
-Open `.env` in your editor:
+Copy `.env.example` to `.env` and open it in your editor:
+
+```bash
+cp .env.example .env
+```
 
 ```bash
 # macOS / Linux
@@ -205,12 +235,13 @@ npm run dev chat-with-tools "What files are in the current directory?"
 
 ### Production Mode Setup
 
-#### Step 1 — Clone and install
+#### Step 1 — Clone, install, and build
 
 ```bash
 git clone <repo-url>
 cd jarvis
 npm install
+npm run build
 ```
 
 ---
@@ -429,7 +460,7 @@ WorkingDirectory=/path/to/jarvis
 Environment="SYNTHETIC_API_KEY=your-key-here"
 Environment="DEFAULT_MODEL=hf:nvidia/Kimi-K2.5-NVFP4"
 Environment="TELEGRAM_BOT_TOKEN=your-token-here"
-ExecStart=/usr/bin/node /path/to/.npm-global/bin/jarvis serve
+ExecStart=/path/to/jarvis/bin/jarvis serve
 Restart=on-failure
 RestartSec=10
 
@@ -550,7 +581,7 @@ npm test
 
 The global link isn't set up. Either:
 - Run `npm link` from the project directory, or
-- Use `node --experimental-strip-types src/cli.ts` instead
+- Run `bin/jarvis` directly from the project directory
 
 ### `Error: Model is required`
 
@@ -584,14 +615,6 @@ SYNTHETIC_SEARCH_API_KEY=your-synthetic-search-key-here
 ### Node.js version errors
 
 Jarvis requires Node.js v22+. Check with `node --version`. Upgrade via [nvm](https://github.com/nvm-sh/nvm): `nvm install 22 && nvm use 22`.
-
-### `.env` not created automatically
-
-Run `npm run setup` to copy `.env.example` → `.env` manually:
-
-```bash
-npm run setup
-```
 
 ### Memory worker errors
 
