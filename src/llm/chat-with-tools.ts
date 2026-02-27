@@ -5,7 +5,7 @@ import { parsePositiveEnvInt } from '../tools/common.ts'
 import { estimateTokenCount } from '../memory/helpers.ts'
 import type { ToolCall, ToolResult, ToolExecutionContext } from '../tools/types.ts'
 
-const MAX_TOOL_ITERATIONS = parsePositiveEnvInt('JARVIS_TOOLS_MAX_ITERATIONS', 5)
+const MAX_TOOL_ITERATIONS = parsePositiveEnvInt('JARVIS_TOOLS_MAX_ITERATIONS', 20)
 const DEFAULT_MAX_PARALLEL_TOOLS = parsePositiveEnvInt('JARVIS_TOOLS_MAX_PARALLEL', 5)
 const DEFAULT_MAX_TOOL_OUTPUT_TOKENS = parsePositiveEnvInt('JARVIS_TOOLS_MAX_OUTPUT_TOKENS', 4000)
 const DEFAULT_MAX_CONTEXT_TOKENS = parsePositiveEnvInt('JARVIS_TOOLS_MAX_CONTEXT_TOKENS', 24000)
@@ -43,9 +43,45 @@ export interface ChatWithToolsOptions {
   maxIterations?: number
   maxToolOutputTokens?: number
   maxContextTokens?: number
+  /**
+   * If true, automatically continue when hitting iteration limit.
+   * Otherwise, returns a response asking user to continue.
+   */
+  autoContinue?: boolean
 }
 
-function createIterationLimitResponse(model: string | undefined, maxIter: number): ChatCompletionResponse {
+function createProgressSummary(toolCalls: ToolCall[]): string {
+  const toolNames = toolCalls.map(tc => tc.function.name)
+  const uniqueTools = [...new Set(toolNames)]
+  const toolCounts = uniqueTools.map(name => {
+    const count = toolNames.filter(n => n === name).length
+    return count > 1 ? `${name} (${count}x)` : name
+  })
+  return `Tools used: ${toolCounts.join(', ')}`
+}
+
+function createIterationWarning(iteration: number, maxIter: number): string | null {
+  const ratio = iteration / maxIter
+  if (ratio >= 0.9) {
+    return `⚠️ Near tool iteration limit (${iteration}/${maxIter}). I can complete current work or you can continue by saying "continue".`
+  }
+  if (ratio >= 0.75) {
+    return `⚠️ Approaching tool iteration limit (${iteration}/${maxIter}). Consider narrowing scope or continuing afterward.`
+  }
+  return null
+}
+
+function createIterationLimitResponse(
+  model: string | undefined,
+  maxIter: number,
+  toolCalls: ToolCall[],
+  accumulatedContent?: string
+): ChatCompletionResponse {
+  const summary = createProgressSummary(toolCalls)
+  const content = accumulatedContent
+    ? `${accumulatedContent}\n\n---\n\n⏹️ Tool iteration limit reached (${maxIter}).\n\n${summary}\n\nTo continue this task, re-run with "continue" or set a higher limit via JARVIS_TOOLS_MAX_ITERATIONS.`
+    : `⏹️ Tool iteration limit reached (${maxIter}).\n\n${summary}\n\nTo continue this task, re-run with "continue" or set a higher limit via JARVIS_TOOLS_MAX_ITERATIONS.`
+
   return {
     id: 'tool_iteration_limit',
     object: 'chat.completion',
@@ -56,7 +92,7 @@ function createIterationLimitResponse(model: string | undefined, maxIter: number
         index: 0,
         message: {
           role: 'assistant',
-          content: `Reached maximum tool iterations (${maxIter}) without producing a final answer. Please narrow the request or split it into smaller steps.`,
+          content,
         },
         finish_reason: 'stop',
       },
@@ -176,9 +212,11 @@ function capContextMessages(messages: ChatMessage[], maxTokens: number): ChatMes
 
   const trimmedCount = middleMessages.length - keptMiddle.length
   if (trimmedCount > 0) {
+    // Use 'user' role instead of 'system' as some LLM APIs (e.g. MiniMax) don't
+    // support system messages mid-conversation.
     const marker: ChatMessage = {
-      role: 'system',
-      content: `[${trimmedCount} earlier messages trimmed to fit context window]`,
+      role: 'user',
+      content: `[System Notice] ${trimmedCount} earlier messages trimmed to fit context window.`,
     }
     return [...frontMessages, marker, ...keptMiddle, ...tailMessages]
   }
@@ -211,6 +249,7 @@ export async function chatWithTools(
   let iteration = 0
   let latestModel = options.model
   const totalUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
+  const allToolCalls: ToolCall[] = []
 
   while (iteration < maxIter) {
     iteration++
@@ -248,6 +287,8 @@ export async function chatWithTools(
 
     // Execute tool calls in parallel with concurrency limit
     const toolCalls = choice.message.tool_calls.map(tc => tc as ToolCall)
+    allToolCalls.push(...toolCalls)
+
     const settlements = await withConcurrencyLimit(
       toolCalls.map((toolCall) => async () => {
         const callStart = Date.now()
@@ -260,6 +301,7 @@ export async function chatWithTools(
     )
 
     // Add tool responses in original order (with output truncation)
+    // Tool results MUST immediately follow the assistant message that requested them.
     for (const settlement of settlements) {
       if (settlement.status === 'fulfilled') {
         const { toolCall, result } = settlement.value
@@ -279,10 +321,41 @@ export async function chatWithTools(
         })
       }
     }
+
+    // Check for warning thresholds AFTER tool results so we don't break the
+    // assistant→tool message ordering required by the API.
+    const warning = createIterationWarning(iteration, maxIter)
+    if (warning && !options.autoContinue) {
+      currentMessages.push({
+        role: 'user',
+        content: `[System Notice] ${warning}`,
+      })
+    }
   }
 
-  // If we hit max iterations, return a clean fallback response.
-  const limitResponse = createIterationLimitResponse(latestModel, maxIter)
-  limitResponse.usage = totalUsage
-  return limitResponse
+  // If we hit max iterations, make one final LLM call to get a summary/context
+  // before returning the limit message. This preserves context for "continue".
+  // Use 'user' role instead of 'system' as some LLM APIs don't support system messages mid-conversation.
+  const limitUserMessage: ChatMessage = {
+    role: 'user',
+    content: `⚠️ TOOL ITERATION LIMIT REACHED (${maxIter}/${maxIter}). You have executed ${allToolCalls.length} tool calls. Provide a summary of what has been accomplished so far. The user can say "continue" to proceed with more iterations.`,
+  }
+  const finalMessages = capContextMessages([...currentMessages, limitUserMessage], maxContext)
+
+  const finalResponse = await client.chat(finalMessages, {
+    model: options.model,
+    temperature: options.temperature,
+    max_tokens: options.max_tokens,
+  })
+  latestModel = finalResponse.model ?? latestModel
+  accumulateUsage(totalUsage, finalResponse.usage)
+
+  // Append the limit reached notice to the response
+  const summary = createProgressSummary(allToolCalls)
+  const originalContent = finalResponse.choices[0]?.message?.content ?? ''
+  const enhancedContent = `${originalContent}\n\n---\n\n⏹️ Tool iteration limit reached (${maxIter}).\n\n${summary}\n\nTo continue this task, simply say "continue" or set a higher limit via JARVIS_TOOLS_MAX_ITERATIONS.`
+
+  finalResponse.choices[0].message.content = enhancedContent
+  finalResponse.usage = totalUsage
+  return finalResponse
 }

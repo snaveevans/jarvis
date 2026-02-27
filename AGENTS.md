@@ -289,7 +289,7 @@ describe('Component', () => {
 - `src/dispatcher.ts` is the central coordinator: resolves sessions, builds system prompts (including skill prompt block), merges base + extra tools, threads `ToolExecutionContext` per request, and routes responses back through endpoints.
 - `src/config.ts` loads configuration via `c12` with Zod validation. Merges `.config/default.json`, environment-specific overrides, environment variables, and CLI flags.
 - `src/llm/client.ts` wraps the OpenAI SDK against the active provider's endpoint. `src/llm/provider.ts` handles provider selection and configuration resolution.
-- `src/llm/chat-with-tools.ts` runs the tool-calling loop: send tool defs, execute returned tool calls in parallel (via `Promise.allSettled` with configurable `maxParallelTools`, default 5), append tool outputs, and continue up to `MAX_TOOL_ITERATIONS` (5).
+- `src/llm/chat-with-tools.ts` runs the tool-calling loop: send tool defs, execute returned tool calls in parallel (via `Promise.allSettled` with configurable `maxParallelTools`, default 5), append tool outputs, and continue up to `MAX_TOOL_ITERATIONS` (20). Provides progressive warnings at 75% and 90% of limit, and shows tool summary when limit is reached.
 - `src/endpoints/` defines the endpoint abstraction. Each endpoint (CLI, Telegram) declares a profile (max message length, tone, formatting) that shapes the system prompt.
 - `src/sessions/` manages per-endpoint+user conversation history with optional SQLite-backed persistence for restart recovery.
 - `src/search/providers/` implements web search backends (Brave, Synthetic) used by the `web_search` tool.

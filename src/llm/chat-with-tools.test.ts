@@ -114,12 +114,32 @@ describe('chatWithTools observability', () => {
     assert.equal(observations.length, 0)
   })
 
-  test('returns a clean fallback when max tool iterations are reached', async () => {
+  test('returns a summary when max tool iterations are reached', async () => {
     let callCount = 0
 
     const mockClient: ChatWithToolsClient = {
       async chat(): Promise<ChatCompletionResponse> {
         callCount++
+
+        // On the final call (after hitting limit), return a summary
+        if (callCount > 5) {
+          return {
+            id: `resp_final`,
+            object: 'chat.completion',
+            created: callCount,
+            model: 'hf:test-model',
+            choices: [
+              {
+                index: 0,
+                message: {
+                  role: 'assistant',
+                  content: 'I have read 5 files as requested.',
+                },
+                finish_reason: 'stop',
+              },
+            ],
+          }
+        }
 
         return {
           id: `resp_tool_${callCount}`,
@@ -151,13 +171,21 @@ describe('chatWithTools observability', () => {
     }
 
     const messages: ChatMessage[] = [{ role: 'user', content: 'Keep using tools' }]
-    const response = await chatWithTools(mockClient, messages)
+    const response = await chatWithTools(mockClient, messages, { maxIterations: 5 })
 
-    assert.equal(response.id, 'tool_iteration_limit')
-    assert.equal(callCount, 5)
+    // Should make maxIterations + 1 calls (5 tool iterations + 1 final summary)
+    assert.equal(callCount, 6)
     assert.match(
       response.choices[0].message.content,
-      /Reached maximum tool iterations \(5\)/
+      /Tool iteration limit reached/
+    )
+    assert.match(
+      response.choices[0].message.content,
+      /Tools used:/
+    )
+    assert.match(
+      response.choices[0].message.content,
+      /continue/
     )
   })
 })
