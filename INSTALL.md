@@ -422,8 +422,10 @@ First, ensure your environment variables are set (either in `.env` for developme
 # Install pm2 globally
 npm install -g pm2
 
-# Production mode (with environment variables)
-pm2 start jarvis --name jarvis -- serve
+# Production mode — point pm2 at the compiled JS file directly
+# (pm2 cannot run the bin/jarvis bash wrapper as a Node process)
+export JARVIS_HOME="$HOME/.jarvis"   # or your install path
+pm2 start "$JARVIS_HOME/dist/cli.js" --name jarvis -- serve
 
 # Development mode (loads .env file)
 pm2 start npm --name jarvis -- run dev serve
@@ -456,11 +458,12 @@ After=network.target
 [Service]
 Type=simple
 User=youruser
-WorkingDirectory=/path/to/jarvis
+WorkingDirectory=/home/youruser/.jarvis
+Environment="JARVIS_HOME=/home/youruser/.jarvis"
 Environment="SYNTHETIC_API_KEY=your-key-here"
 Environment="DEFAULT_MODEL=hf:nvidia/Kimi-K2.5-NVFP4"
 Environment="TELEGRAM_BOT_TOKEN=your-token-here"
-ExecStart=/path/to/jarvis/bin/jarvis serve
+ExecStart=/usr/bin/node /home/youruser/.jarvis/dist/cli.js serve
 Restart=on-failure
 RestartSec=10
 
