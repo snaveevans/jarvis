@@ -155,6 +155,66 @@ function estimateMessagesTokens(messages: ChatMessage[]): number {
 }
 
 /**
+ * Sanitize messages to ensure valid conversation structure for strict LLM APIs.
+ * Rules enforced:
+ *  1. System messages only at the start (position 0). Any mid-conversation system
+ *     messages are converted to user messages with [System Notice] prefix.
+ *  2. Tool result messages must immediately follow an assistant message with tool_calls.
+ *     Orphaned tool results are removed.
+ *  3. The first non-system message should be 'user' (not 'assistant' or 'tool').
+ *     Leading assistant/tool messages (after system) are removed.
+ */
+export function sanitizeMessages(messages: ChatMessage[]): ChatMessage[] {
+  if (messages.length === 0) return messages
+
+  const result: ChatMessage[] = []
+  let pastSystemPrefix = false
+
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i]
+
+    if (msg.role === 'system') {
+      if (!pastSystemPrefix) {
+        result.push(msg)
+        continue
+      }
+      // Mid-conversation system message — convert to user
+      result.push({
+        ...msg,
+        role: 'user',
+        content: `[System Notice] ${msg.content}`,
+      })
+      continue
+    }
+
+    pastSystemPrefix = true
+
+    if (msg.role === 'tool') {
+      // Only keep tool messages if they follow an assistant message with tool_calls
+      const prev = result[result.length - 1]
+      if (prev && (prev.role === 'assistant' && prev.tool_calls) || prev?.role === 'tool') {
+        result.push(msg)
+      }
+      // Otherwise silently drop orphaned tool results
+      continue
+    }
+
+    result.push(msg)
+  }
+
+  // Ensure first non-system message is 'user'
+  let firstNonSystem = 0
+  while (firstNonSystem < result.length && result[firstNonSystem].role === 'system') {
+    firstNonSystem++
+  }
+  while (firstNonSystem < result.length && result[firstNonSystem].role !== 'user') {
+    result.splice(firstNonSystem, 1)
+  }
+
+  return result
+}
+
+/**
  * Trim messages to fit within a token budget.
  * Preserves: system prompts at the start, first user message, and recent messages
  * (including all tool results from the current iteration).
@@ -178,7 +238,14 @@ function capContextMessages(messages: ChatMessage[], maxTokens: number): ChatMes
 
   // Protect the most recent messages (keep at least last 6 for tool call context)
   const minTailMessages = Math.min(6, messages.length - protectedFront)
-  const tailStart = messages.length - minTailMessages
+  let tailStart = messages.length - minTailMessages
+
+  // Expand tail backwards to avoid splitting an assistant→tool group.
+  // If tailStart lands on a 'tool' message, move it back to include the
+  // preceding assistant message that initiated the tool calls.
+  while (tailStart > protectedFront && messages[tailStart]?.role === 'tool') {
+    tailStart--
+  }
 
   if (tailStart <= protectedFront) {
     return messages // can't trim further
@@ -208,6 +275,13 @@ function capContextMessages(messages: ChatMessage[], maxTokens: number): ChatMes
     }
     keptMiddle.unshift(middleMessages[i])
     middleTokens += msgTokens
+  }
+
+  // Ensure we don't start keptMiddle with orphaned 'tool' or 'assistant' messages.
+  // The kept portion must begin on a 'user' message boundary to maintain valid
+  // conversation structure (some LLM APIs reject other orderings).
+  while (keptMiddle.length > 0 && keptMiddle[0].role !== 'user') {
+    keptMiddle.shift()
   }
 
   const trimmedCount = middleMessages.length - keptMiddle.length
@@ -256,6 +330,9 @@ export async function chatWithTools(
 
     // Cap context before each LLM call to prevent overflow
     currentMessages = capContextMessages(currentMessages, maxContext)
+
+    // Sanitize message ordering as a safety net for strict LLM APIs
+    currentMessages = sanitizeMessages(currentMessages)
 
     const response = await client.chat(currentMessages, {
       model: options.model,
@@ -340,7 +417,7 @@ export async function chatWithTools(
     role: 'user',
     content: `⚠️ TOOL ITERATION LIMIT REACHED (${maxIter}/${maxIter}). You have executed ${allToolCalls.length} tool calls. Provide a summary of what has been accomplished so far. The user can say "continue" to proceed with more iterations.`,
   }
-  const finalMessages = capContextMessages([...currentMessages, limitUserMessage], maxContext)
+  const finalMessages = sanitizeMessages(capContextMessages([...currentMessages, limitUserMessage], maxContext))
 
   const finalResponse = await client.chat(finalMessages, {
     model: options.model,

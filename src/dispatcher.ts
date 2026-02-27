@@ -240,10 +240,19 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
           searchPool: config.searchPool,
           shellPool: config.shellPool,
         }
+        // Merge memory context into the system prompt rather than prepending a
+        // separate system message. Some LLM APIs (e.g. MiniMax) reject multiple
+        // system messages or system messages after position 0.
         const memoryContext = await getMemoryContext(message.text)
-        const llmMessages = memoryContext
-          ? [{ role: 'system', content: memoryContext } as ChatMessage, ...session.messages]
-          : session.messages
+        let llmMessages = session.messages
+        if (memoryContext && llmMessages.length > 0 && llmMessages[0].role === 'system') {
+          llmMessages = [
+            { role: 'system', content: `${llmMessages[0].content}\n\n${memoryContext}` },
+            ...llmMessages.slice(1),
+          ]
+        } else if (memoryContext) {
+          llmMessages = [{ role: 'system', content: memoryContext } as ChatMessage, ...llmMessages]
+        }
 
         try {
           const llmCallStart = Date.now()
@@ -391,9 +400,15 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
           shellPool: config.shellPool,
         }
         const memoryContext = await getMemoryContext(params.text)
-        const llmMessages = memoryContext
-          ? [{ role: 'system', content: memoryContext } as ChatMessage, ...session.messages]
-          : session.messages
+        let llmMessages = session.messages
+        if (memoryContext && llmMessages.length > 0 && llmMessages[0].role === 'system') {
+          llmMessages = [
+            { role: 'system', content: `${llmMessages[0].content}\n\n${memoryContext}` },
+            ...llmMessages.slice(1),
+          ]
+        } else if (memoryContext) {
+          llmMessages = [{ role: 'system', content: memoryContext } as ChatMessage, ...llmMessages]
+        }
 
         try {
           const llmStart = Date.now()

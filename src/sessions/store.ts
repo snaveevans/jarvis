@@ -55,11 +55,23 @@ export function createInMemorySessionStore(config: SessionStoreConfig = {}): Ses
       return // nothing to evict
     }
 
+    // Skip any existing continuity markers from prior evictions so they don't accumulate
+    let evictUpTo = protectedStart
+    while (evictUpTo < protectedEnd && session.messages[evictUpTo].role === 'system') {
+      evictUpTo++
+    }
+
     // Evict oldest messages until under budget
     let currentTokens = totalTokens
-    let evictUpTo = protectedStart
-
     while (evictUpTo < protectedEnd && currentTokens > maxTokens) {
+      currentTokens -= estimateTokenCount(session.messages[evictUpTo].content)
+      evictUpTo++
+    }
+
+    // Ensure we evict complete user/assistant pairs so the first remaining
+    // non-system message is always a 'user' message. Many LLM APIs (e.g. MiniMax)
+    // reject conversations where the first non-system message is 'assistant'.
+    while (evictUpTo < protectedEnd && session.messages[evictUpTo]?.role !== 'user') {
       currentTokens -= estimateTokenCount(session.messages[evictUpTo].content)
       evictUpTo++
     }
@@ -75,15 +87,11 @@ export function createInMemorySessionStore(config: SessionStoreConfig = {}): Ses
     const startSeq = evictedSequences.length > 0 ? Math.min(...evictedSequences) : 0
     const endSeq = evictedSequences.length > 0 ? Math.max(...evictedSequences) : 0
 
-    // Inject a continuity marker after the system prompt
-    const summaryMsg: ChatMessage = {
-      role: 'system',
-      content: `[Prior context: ${evicted.length} earlier messages were summarized and stored to memory. Continue the conversation naturally.]`,
-    }
-    const summarySeq = nextSequenceBySession.get(session.id) ?? 1
-    sequenceByMessage.set(summaryMsg, summarySeq)
-    nextSequenceBySession.set(session.id, summarySeq + 1)
-    session.messages.splice(protectedStart, 0, summaryMsg)
+    // NOTE: We intentionally do NOT inject a continuity marker message here.
+    // Adding a 'system' role marker causes "invalid chat setting" errors on APIs
+    // that only allow system messages at position 0 (e.g. MiniMax). The evicted
+    // content is stored to memory via the onEvict callback and can be retrieved
+    // by the LLM using memory_search if needed.
 
     if (onEvict && evicted.length > 0) {
       onEvict(session.id, evicted, { startSeq, endSeq })
