@@ -39,7 +39,7 @@ export function createHealthCheckTool(deps: HealthCheckToolDeps = {}): Tool {
       properties: {
         checkLLM: {
           type: 'boolean',
-          description: 'Whether to ping the LLM API by listing models (default: true). Set to false to skip the network check.',
+          description: 'Whether to ping the LLM API (default: true). Uses /models and falls back to a tiny completion probe if needed.',
         },
       },
       required: [],
@@ -54,16 +54,34 @@ export function createHealthCheckTool(deps: HealthCheckToolDeps = {}): Tool {
         if (!deps.client) return { status: 'error', detail: 'LLM client not wired' }
         if (!checkLLM) return { status: 'ok', detail: 'skipped' }
         const start = Date.now()
+        const probeMessages = [{ role: 'user' as const, content: 'Reply with OK.' }]
         try {
           const models = await deps.client.listModels()
           const latencyMs = Date.now() - start
           return { status: 'ok', detail: `${models.length} models available`, latencyMs }
-        } catch (err) {
-          const latencyMs = Date.now() - start
-          return {
-            status: 'error',
-            detail: err instanceof Error ? err.message : String(err),
-            latencyMs,
+        } catch (modelsErr) {
+          try {
+            const completion = await deps.client.chat(probeMessages, {
+              temperature: 0,
+              max_tokens: 8,
+            })
+            const latencyMs = Date.now() - start
+            const reply = completion.choices[0]?.message?.content?.trim() || '(empty)'
+            const modelsErrorDetail = modelsErr instanceof Error ? modelsErr.message : String(modelsErr)
+            return {
+              status: 'ok',
+              detail: `completion probe succeeded after /models failed (${modelsErrorDetail}); reply: ${reply}`,
+              latencyMs,
+            }
+          } catch (probeErr) {
+            const latencyMs = Date.now() - start
+            const modelsErrorDetail = modelsErr instanceof Error ? modelsErr.message : String(modelsErr)
+            const probeErrorDetail = probeErr instanceof Error ? probeErr.message : String(probeErr)
+            return {
+              status: 'error',
+              detail: `/models failed (${modelsErrorDetail}); completion probe failed (${probeErrorDetail})`,
+              latencyMs,
+            }
           }
         }
       })()
