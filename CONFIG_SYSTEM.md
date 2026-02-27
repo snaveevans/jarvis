@@ -125,10 +125,9 @@ async function main() {
 }
 ```
 
-## Changes Made
+## Notes
 
-- Removed `dotenv` dependency
-- Removed all `process.env` direct access
-- Configuration is now the single source of truth
-- All configuration goes through `getConfig()`
+- Configuration is loaded via `getConfig()` with Zod validation
+- Environment variables are still supported (mapped through the config layer)
+- `dotenv` is used for `.env` file loading in development mode
 - Type-safe with full TypeScript support

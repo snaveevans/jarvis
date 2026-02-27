@@ -661,5 +661,6 @@ cd .. && rm -rf jarvis
 ## What's Next
 
 - Read the [README](./README.md) for an overview of all commands and capabilities
-- See [CONFIG_SYSTEM.md](./CONFIG_SYSTEM.md) for detailed configuration documentation
+- See [CONFIG_SYSTEM.md](./CONFIG_SYSTEM.md) for configuration documentation
+- See [docs/tool-spec.md](./docs/tool-spec.md) for tool capabilities and safeguards
 - See [docs/decisions.md](./docs/decisions.md) for architecture decisions

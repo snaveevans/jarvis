@@ -265,6 +265,115 @@ Created via `createMemoryTools()` using `MemoryService` (`src/memory/service.ts`
 
 ---
 
+### 13. web_search
+
+**Intent**: Search the web for current information using configured search backend (Brave or Synthetic).
+
+| Field | Detail |
+|---|---|
+| Input | `query` (string), optional `limit` (default 5, max 10) |
+| Output | Compact list of search results with titles, URLs, and snippets |
+
+**Safeguards**:
+- Read-only — no side effects
+- Requires configured search provider API key
+- Results bounded by `JARVIS_SEARCH_MAX_LIMIT` (default 10)
+- Timeout capped by `JARVIS_SEARCH_TIMEOUT_MS` (default 15s)
+
+---
+
+### 14. health_check
+
+**Intent**: Return a simple health status for monitoring.
+
+| Field | Detail |
+|---|---|
+| Input | (none) |
+| Output | Health status with uptime and version info |
+
+---
+
+### 15. introspect
+
+**Intent**: Inspect recent tool-call telemetry from the in-memory event ring buffer.
+
+| Field | Detail |
+|---|---|
+| Input | Optional filters (tool name, time range) |
+| Output | Recent tool execution events with timing and results |
+
+---
+
+### 16. read_logs
+
+**Intent**: Read application log file for self-diagnosis.
+
+| Field | Detail |
+|---|---|
+| Input | Optional `lines` (number of recent lines), optional `level` filter |
+| Output | Log lines from `JARVIS_LOG_FILE` |
+
+**Safeguards**:
+- Only available when `JARVIS_LOG_FILE` is configured
+- Read-only — cannot modify logs
+
+---
+
+### 17. memory_delete
+
+**Intent**: Delete a specific memory entry by ID.
+
+| Field | Detail |
+|---|---|
+| Input | `id` (number) |
+| Output | Confirmation of deletion |
+
+**Behavior**:
+- Validates the memory exists before deletion
+- Permanent — cannot be undone
+
+---
+
+### 18. create_skill / list_skills / remove_skill
+
+Created via skill manager in `src/tools/skill-manager.ts`. Runtime management of custom skills.
+
+#### create_skill
+
+**Intent**: Create a new custom skill at runtime.
+
+| Field | Detail |
+|---|---|
+| Input | `name` (string), `description` (string), `tools` (string[]), `body` (string) |
+| Output | Confirmation with skill file path |
+
+**Behavior**:
+- Writes a markdown file with YAML frontmatter to `data/skills/`
+- Skill is loaded lazily and activated without restart
+
+#### list_skills
+
+**Intent**: List all available skills (built-in and custom).
+
+| Field | Detail |
+|---|---|
+| Input | (none) |
+| Output | List of skills with name, description, and tool list |
+
+#### remove_skill
+
+**Intent**: Remove a custom skill.
+
+| Field | Detail |
+|---|---|
+| Input | `name` (string) |
+| Output | Confirmation |
+
+**Safeguards**:
+- Cannot remove built-in skills (only custom skills in `data/skills/`)
+
+---
+
 ## Skills
 
 Skills are **markdown instruction files** that teach the agent how to combine tools for higher-level tasks. They do not define or own tools — if a skill needs a new capability, it's added as a regular tool.
@@ -285,18 +394,24 @@ Available skills (use `read` tool on the skill file for detailed instructions):
 ## Tool Selection Heuristic
 
 ```
-Need to find a file by name?          -> Glob
-Need to find code by content?         -> Grep
-Need to understand a file?            -> Read
-Need to change a few lines?           -> Edit
-Need to create a new file?            -> Write
-Need to run a command?                -> Shell
-Need to ask the user something?       -> AskUser
-Need to plan a multi-step task?       -> TodoList
-Need to look something up online?     -> WebFetch
-Need to do something complex/broad?   -> SubAgent
-Need to schedule a delayed message?   -> schedule_message
+Need to find a file by name?            -> Glob
+Need to find code by content?           -> Grep
+Need to understand a file?              -> Read
+Need to change a few lines?             -> Edit
+Need to create a new file?              -> Write
+Need to run a command?                  -> Shell
+Need to ask the user something?         -> AskUser
+Need to plan a multi-step task?         -> TodoList
+Need to look up a specific URL?         -> WebFetch
+Need to search the web?                 -> web_search
+Need to do something complex/broad?     -> SubAgent
+Need to schedule a delayed message?     -> schedule_message
 Need to recall/store durable knowledge? -> memory_search / memory_store
+Need to delete a memory?                -> memory_delete
+Need to check system health?            -> health_check
+Need to inspect recent tool activity?   -> introspect
+Need to read application logs?          -> read_logs
+Need to manage custom skills?           -> create_skill / list_skills / remove_skill
 ```
 
 ---

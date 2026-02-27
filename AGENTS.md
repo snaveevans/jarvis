@@ -12,9 +12,21 @@ Jarvis is a Node.js + TypeScript AI assistant project. It provides an LLM client
 src/
 ├── cli.ts                 # Main CLI entry point (Commander.js)
 ├── dispatcher.ts          # Central coordinator (sessions, tools, skills)
+├── config.ts              # Configuration loader (c12 + Zod validation)
+├── logger.ts              # Centralized logging (pino)
+├── prompt-input.ts        # Prompt input handling
+├── commands/
+│   ├── uninstall.ts       # Uninstall command
+│   └── update.ts          # Update command
+├── endpoints/
+│   ├── index.ts           # Endpoint exports
+│   ├── types.ts           # Endpoint, EndpointProfile, InboundMessage, OutboundMessage
+│   ├── cli.ts             # CLI endpoint (stdout)
+│   └── telegram.ts        # Telegram endpoint (grammy)
 ├── llm/
 │   ├── client.ts          # LLMClient - OpenAI SDK wrapper
 │   ├── chat-with-tools.ts # Tool execution orchestration (parallel, supports dynamic tools)
+│   ├── provider.ts        # Provider abstraction and selection
 │   ├── types.ts           # TypeScript interfaces
 │   ├── errors.ts          # Custom error classes
 │   ├── index.ts           # Public exports
@@ -22,6 +34,7 @@ src/
 ├── tools/
 │   ├── types.ts           # Tool type definitions (+ ToolExecutionContext)
 │   ├── common.ts          # Shared safety and output helpers
+│   ├── index.ts           # Base tool registry and execution
 │   ├── read.ts            # Read tool (files/directories)
 │   ├── glob.ts            # File path pattern search (delegates to search pool)
 │   ├── grep.ts            # Content regex search (delegates to search pool)
@@ -29,18 +42,37 @@ src/
 │   ├── write.ts           # File creation/overwrite
 │   ├── shell.ts           # Guarded shell execution (delegates to shell pool)
 │   ├── web-fetch.ts       # Read-only web fetching
+│   ├── web-search.ts      # Web search (Brave/Synthetic backends)
 │   ├── ask-user.ts        # User clarification interface
 │   ├── todo-list.ts       # In-session task tracking interface
 │   ├── sub-agent.ts       # Sub-agent delegation interface
 │   ├── read-file.ts       # Backward-compatible read_file alias
 │   ├── schedule-message.ts # Generic scheduled-message tools factory (+ persistence)
-│   └── index.ts           # Base tool registry and execution
+│   ├── memory-tools.ts    # Memory tool factory/integrator
+│   ├── memory-search.ts   # memory_search tool
+│   ├── memory-store.ts    # memory_store tool
+│   ├── memory-delete.ts   # memory_delete tool
+│   ├── health-check.ts    # Health check endpoint
+│   ├── introspect.ts      # Tool introspection
+│   ├── read-logs.ts       # Log file reading
+│   └── skill-manager.ts   # Skill management (create/list/remove)
 ├── memory/
 │   ├── db.ts              # SQLite schema/migrations
 │   ├── service.ts         # MemoryService (async interface, in-process implementation)
 │   ├── helpers.ts         # Pure functions shared between service and worker
+│   ├── eviction-evaluator.ts # Memory eviction logic
 │   ├── types.ts           # Memory interfaces and enums
 │   └── index.ts           # Public exports
+├── sessions/
+│   ├── index.ts           # Sessions module exports
+│   ├── types.ts           # Session interface
+│   ├── store.ts           # In-memory session store
+│   └── history-store.ts   # Session history persistence (SQLite)
+├── search/
+│   ├── types.ts           # Search type definitions
+│   └── providers/
+│       ├── brave.ts       # Brave Search integration
+│       └── synthetic.ts   # Synthetic Search integration
 ├── workers/
 │   ├── memory-worker.ts       # SQLite worker thread entry point
 │   ├── memory-worker-client.ts # Main thread MemoryService via worker
@@ -52,10 +84,16 @@ src/
 │   ├── pool.ts            # Concurrency-limited shell process pool (default 3)
 │   ├── types.ts           # ShellJob, ShellResult, ShellPool interfaces
 │   └── index.ts           # Public exports
+├── triggers/
+│   └── cron.ts            # Interval-based scheduled tasks
+├── telemetry/
+│   └── event-store.ts     # Event telemetry ring buffer
 └── skills/
     ├── types.ts           # SkillFrontmatter interface
     ├── index.ts           # SkillRegistry: reads frontmatter, builds prompt block
-    └── reminder.md        # Reminder skill instructions (frontmatter + usage guide)
+    ├── reminder.md        # Reminder skill instructions
+    ├── memory.md          # Memory skill instructions
+    └── introspection.md   # Introspection skill instructions
 ```
 
 ## Build/Test/Lint Commands
@@ -92,11 +130,11 @@ node --experimental-strip-types --test src/llm/types.test.ts
 
 ### Setup
 
-Copy `.env.example` to `.env` and add your API key:
+Copy `.env.example` to `.env` and configure your provider:
 
 ```bash
 cp .env.example .env
-# Edit .env and add your SYNTHETIC_API_KEY and DEFAULT_MODEL
+# Edit .env — set LLM_PROVIDER, API key, and DEFAULT_MODEL
 ```
 
 ### Commands
@@ -112,7 +150,7 @@ jarvis chat "Write a poem" -m "hf:model-name" -t 0.9
 jarvis chat "Hello" --max-tokens 50
 jarvis chat --file ./prompt.txt
 
-# Chat with tool calling (read_file)
+# Chat with tool calling
 jarvis chat-with-tools "Read README.md and summarize it"
 jarvis chat-with-tools "What does package.json contain?"
 jarvis chat-with-tools --file ./prompt.txt
@@ -245,54 +283,27 @@ describe('Component', () => {
 - Worker threads auto-detect compiled vs source mode and adjust paths/execArgv accordingly.
 - Parameter properties are NOT supported (don't use `constructor(public readonly foo: string)`).
 
-## Copilot Session Instructions (Merged)
-
-### Build, test, and lint commands
-
-Jarvis compiles with `tsc` for production and uses `--experimental-strip-types` for dev/test.
-
-```bash
-# Build for production
-npm run build
-
-# CLI smoke check (compiled)
-bin/jarvis --help
-
-# Dev mode (from source, no build)
-npm run dev
-
-# Full test suite (from source, no build)
-npm test
-
-# Run one test file
-node --experimental-strip-types --test src/llm/client.test.ts
-node --experimental-strip-types --test src/llm/types.test.ts
-```
-
-There is currently no lint script in `package.json`.
-
-### High-level architecture
+## Key Architecture Notes
 
 - `src/cli.ts` is the executable entrypoint (`jarvis`) and command router (Commander). It loads `.env`, parses CLI flags, and calls into the LLM layer. In `serve`/`telegram` modes it creates extra tools (reminder), registers skill metadata, and passes both to the dispatcher.
 - `src/dispatcher.ts` is the central coordinator: resolves sessions, builds system prompts (including skill prompt block), merges base + extra tools, threads `ToolExecutionContext` per request, and routes responses back through endpoints.
-- `src/llm/client.ts` wraps the OpenAI SDK against synthetic.new's OpenAI-compatible endpoint and maps SDK/API failures into local typed errors in `src/llm/errors.ts`.
-- `src/llm/chat-with-tools.ts` runs the tool-calling loop: send tool defs, execute returned tool calls in parallel (via `Promise.allSettled` with configurable `maxParallelTools`, default 5), append tool outputs, and continue up to `MAX_TOOL_ITERATIONS` (5). Accepts optional `tools`, `executeTool`, and `toolContext` to support dynamic tool sets.
-- `src/tools/index.ts` is the base tool registry/dispatcher. `availableTools` drives `getToolDefinitions()` and `executeTool()`. Tools accept an optional `ToolExecutionContext` with `sessionId`, `endpointKind`, `searchPool`, and `shellPool`.
-- `src/workers/` contains worker thread infrastructure. `memory-worker.ts` runs SQLite operations off the main thread; `memory-worker-client.ts` provides a `MemoryService`-compatible client. `search-worker.ts` + `search-worker-pool.ts` handle glob/grep via a round-robin pool of 2 workers. Workers communicate via `requestId`-based message passing.
-- `src/shell/pool.ts` provides `createShellPool()` — a concurrency-limited process pool (default 3 concurrent) that queues excess shell commands. Injected via `ToolExecutionContext.shellPool`.
-- `src/tools/schedule-message.ts` provides `createScheduleMessageTools(config)` — a factory that returns three tools (`schedule_message`, `list_scheduled_messages`, `cancel_scheduled_message`) with atomic JSON persistence to `data/scheduled-messages.json` and restart recovery. Requires `sendProactive`, `dataDir`, and `logger` at construction.
-- `src/skills/index.ts` is the skill registry. `createSkillRegistry()` reads markdown frontmatter and builds a compact system prompt block. Skills are pure markdown instruction files — they don't own tools.
-- `src/llm/types.ts` holds shared message/request/response and tool schemas used by CLI, client, and tool orchestration; `src/llm/index.ts` is the public export surface.
-
-### Key repository conventions
-
-- Runtime is Node.js v22+. Production uses compiled `dist/` output (`npm run build`); dev/test use `--experimental-strip-types` from source.
-- Use ESM imports with explicit `.ts` extensions throughout `src/**`.
-- `chat` and `chat-with-tools` require a model via `--model` or `DEFAULT_MODEL`; `LLMClient` requires `SYNTHETIC_API_KEY` unless passed in programmatically.
-- Tool-call arguments are JSON strings (`call.function.arguments`) and are parsed in `executeTool`; tool handlers return `{ content, error? }` instead of throwing through the loop.
-- Tests use Node's native test runner (`node:test` + `node:assert`) with files colocated as `*.test.ts`.
-- Skills are markdown files in `src/skills/<name>.md` with YAML frontmatter (name, description, tool list) + a usage guide body. They do not contain tool implementations — tools live in `src/tools/`.
-- Tools that need services (dispatcher, data dir) are created via factory functions (e.g., `createScheduleMessageTools()`) and passed to the dispatcher as `extraTools`.
+- `src/config.ts` loads configuration via `c12` with Zod validation. Merges `.config/default.json`, environment-specific overrides, environment variables, and CLI flags.
+- `src/llm/client.ts` wraps the OpenAI SDK against the active provider's endpoint. `src/llm/provider.ts` handles provider selection and configuration resolution.
+- `src/llm/chat-with-tools.ts` runs the tool-calling loop: send tool defs, execute returned tool calls in parallel (via `Promise.allSettled` with configurable `maxParallelTools`, default 5), append tool outputs, and continue up to `MAX_TOOL_ITERATIONS` (5).
+- `src/endpoints/` defines the endpoint abstraction. Each endpoint (CLI, Telegram) declares a profile (max message length, tone, formatting) that shapes the system prompt.
+- `src/sessions/` manages per-endpoint+user conversation history with optional SQLite-backed persistence for restart recovery.
+- `src/search/providers/` implements web search backends (Brave, Synthetic) used by the `web_search` tool.
+- `src/tools/index.ts` is the base tool registry/dispatcher. Tools accept an optional `ToolExecutionContext` with `sessionId`, `endpointKind`, `searchPool`, and `shellPool`.
+- `src/workers/` contains worker thread infrastructure. Memory worker runs SQLite off the main thread; search worker pool handles glob/grep via 2 round-robin workers.
+- `src/shell/pool.ts` provides `createShellPool()` — a concurrency-limited process pool (default 3 concurrent) that queues excess shell commands.
+- `src/skills/index.ts` is the skill registry. Skills are pure markdown instruction files — they don't own tools.
 - Tool data is persisted to the `data/` directory (gitignored). Use atomic writes (tmp+rename).
-- For architecture-level decisions, use and update `docs/decisions.md` (lightweight decision log format).
-- Keep code changes incremental and focused, consistent with the project direction in `README.md`.
+
+## Key Conventions
+
+- Use ESM imports with explicit `.ts` extensions throughout `src/**`.
+- Tool-call arguments are JSON strings parsed in `executeTool`; tool handlers return `{ content, error? }` instead of throwing.
+- Tests use Node's native test runner (`node:test` + `node:assert`) with files colocated as `*.test.ts`.
+- Skills are markdown files in `src/skills/<name>.md` with YAML frontmatter (name, description, tool list) + a usage guide body.
+- Tools that need services are created via factory functions and passed to the dispatcher as `extraTools`.
+- For architecture-level decisions, use and update `docs/decisions.md`.

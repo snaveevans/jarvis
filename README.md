@@ -104,7 +104,7 @@ jarvis chat-with-tools --file ./prompt.txt
 jarvis chat-with-tools "Debug this" --no-memory
 ```
 
-Available tools include: `read`, `glob`, `grep`, `edit`, `write`, `shell`, `ask_user`, `todo_list`, `web_fetch`, `sub_agent`, `read_file`, plus memory tools (`memory_search`, `memory_store`) when memory is enabled.
+Available tools include: `read`, `glob`, `grep`, `edit`, `write`, `shell`, `ask_user`, `todo_list`, `web_fetch`, `web_search`, `sub_agent`, `read_file`, plus memory tools (`memory_search`, `memory_store`, `memory_delete`) when memory is enabled. In `serve`/`telegram` modes: `schedule_message`, `list_scheduled_messages`, `cancel_scheduled_message`, `health_check`, `introspect`, `read_logs`, and skill management tools.
 
 ### Telegram Bot
 
@@ -190,7 +190,9 @@ Serve mode automatically registers any available endpoints (Telegram if `TELEGRA
 
 ### Skills
 
-Skills are higher-level capabilities loaded in `serve` and `telegram` modes. They add tools to the LLM and can send proactive messages.
+Skills are higher-level capabilities loaded in `serve` and `telegram` modes. They add instructions to the system prompt and can leverage tools for proactive behavior.
+
+Built-in skills: **Reminder**, **Memory**, **Introspection**.
 
 **Reminder** — set, list, and cancel time-based reminders:
 
@@ -267,6 +269,7 @@ Endpoints (Telegram, CLI, HTTP)
 src/
 ├── cli.ts                 # CLI entry point (Commander.js)
 ├── dispatcher.ts          # Central coordinator
+├── config.ts              # Configuration loader (c12 + Zod)
 ├── logger.ts              # Pino-based logging
 ├── endpoints/
 │   ├── types.ts           # Endpoint, EndpointProfile, InboundMessage, OutboundMessage
@@ -274,39 +277,48 @@ src/
 │   └── cli.ts             # CLI endpoint (stdout)
 ├── sessions/
 │   ├── types.ts           # Session interface
-│   └── store.ts           # In-memory session store
+│   ├── store.ts           # In-memory session store
+│   └── history-store.ts   # Session history persistence (SQLite)
 ├── triggers/
 │   └── cron.ts            # Interval-based scheduled tasks
+├── search/
+│   └── providers/         # Web search backends (Brave, Synthetic)
 ├── memory/
 │   ├── db.ts              # SQLite schema/migrations
 │   ├── service.ts         # Memory service (async interface)
 │   ├── helpers.ts         # Pure functions shared with worker
+│   ├── eviction-evaluator.ts # Memory eviction logic
 │   └── types.ts           # Memory interfaces and enums
 ├── workers/
 │   ├── memory-worker.ts       # SQLite worker thread
 │   ├── memory-worker-client.ts # Main thread interface
 │   ├── search-worker.ts       # File search worker
 │   ├── search-worker-pool.ts # Round-robin pool (2 workers)
-│   ├── types.ts               # WorkerRequest/WorkerResponse
-│   └── index.ts               # Public exports
+│   └── types.ts               # WorkerRequest/WorkerResponse
 ├── shell/
 │   ├── pool.ts                # Shell process pool (3 concurrent)
-│   ├── types.ts               # ShellJob, ShellResult interfaces
-│   └── index.ts               # Public exports
+│   └── types.ts               # ShellJob, ShellResult interfaces
+├── telemetry/
+│   └── event-store.ts    # In-memory event ring buffer
 ├── skills/
-│   ├── types.ts           # SkillFrontmatter interface
 │   ├── index.ts           # SkillRegistry: reads frontmatter, builds prompt block
-│   └── reminder.md        # Reminder skill instructions
+│   ├── reminder.md        # Reminder skill
+│   ├── memory.md          # Memory skill
+│   └── introspection.md   # Introspection skill
 ├── llm/
 │   ├── client.ts          # LLMClient (OpenAI SDK wrapper)
+│   ├── provider.ts        # Provider abstraction and selection
 │   ├── chat-with-tools.ts # Tool execution loop (parallel)
 │   ├── types.ts           # Shared interfaces
 │   └── errors.ts          # Custom error classes
 └── tools/
     ├── index.ts           # Base tool registry and executor
-    ├── schedule-message.ts # Scheduled-message tools
-    ├── memory-search.ts   # memory_search tool
-    ├── memory-store.ts    # memory_store tool
+    ├── schedule-message.ts # Scheduled-message tools factory
+    ├── memory-tools.ts    # Memory tool factory
+    ├── memory-search.ts, memory-store.ts, memory-delete.ts
+    ├── web-search.ts      # Web search (Brave/Synthetic)
+    ├── health-check.ts, introspect.ts, read-logs.ts
+    ├── skill-manager.ts   # Skill management (create/list/remove)
     ├── read.ts, glob.ts, grep.ts, edit.ts, write.ts, shell.ts, ...
     └── types.ts           # Tool types + ToolExecutionContext
 ```
