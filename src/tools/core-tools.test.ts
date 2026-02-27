@@ -100,16 +100,27 @@ describe('core tool safeguards', () => {
   })
 
   test('shell blocks disallowed command patterns', async () => {
-    const blocked = await shellTool.execute({
-      command: 'cat package.json',
+    const blockedVim = await shellTool.execute({
+      command: 'vim file.txt',
     })
-    assert.ok(blocked.error)
-    assert.match(blocked.error, /Blocked shell command pattern/)
+    assert.ok(blockedVim.error)
+    assert.match(blockedVim.error, /Blocked shell command pattern/)
+
+    const blockedForce = await shellTool.execute({
+      command: 'git push --force origin main',
+    })
+    assert.ok(blockedForce.error)
+    assert.match(blockedForce.error, /Blocked shell command pattern/)
 
     const allowed = await shellTool.execute({
       command: 'printf "ok"',
     })
     assert.equal(allowed.error, undefined)
     assert.match(allowed.content, /ok/)
+
+    const allowedCat = await shellTool.execute({
+      command: 'cat package.json',
+    })
+    assert.equal(allowedCat.error, undefined)
   })
 })

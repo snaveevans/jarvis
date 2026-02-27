@@ -82,3 +82,10 @@ Each decision follows this format:
 - **Decision**: Use Node.js + TypeScript (native execution via `--loader` or `.mjs`)
 - **Context**: Latest Node with native TypeScript support. Types aid intent and understanding. npm ecosystem is extensive. No compilation step needed since Jarvis will write its own code.
 - **Consequences**: Fast iteration, type safety without build step, but requires recent Node version
+
+### Autonomous agent identity and relaxed shell policy
+
+- **Date**: 2026-02-27
+- **Decision**: Replace passive "helpful assistant" system prompt with autonomous agent identity. Relax shell blocked patterns to only block interactive editors/pagers and destructive git operations.
+- **Context**: Jarvis was telling users to run commands themselves instead of executing them — even though it has a shell tool. Root causes: (1) the system prompt framed Jarvis as a "helpful assistant" (passive), (2) shell blocked common unix utils like `cat`/`sed`/`awk` and redirect operators, causing the LLM to broadly avoid shell usage, (3) the shell tool description was too minimal to guide usage.
+- **Consequences**: Jarvis now takes action by default. Shell blocks are limited to truly non-functional commands (interactive editors/pagers) and genuinely dangerous operations (force push, no-verify). Standard unix tools and git config are allowed. The system prompt explicitly instructs the agent to execute rather than suggest.

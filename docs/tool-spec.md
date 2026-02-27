@@ -110,8 +110,9 @@ A minimal, opinionated specification for the tools a code-writing AI agent needs
 **Safeguards**:
 - **Persistent session**: State (env vars, working directory) carries across calls within a session.
 - **Output cap**: Truncated at ~50KB or 2000 lines; full output saved to a file.
-- **No file ops via shell**: Agent should not use `cat`, `sed`, `awk`, `echo >` when Read/Edit/Write tools exist.
-- **Git safety**: No `--force` pushes, no `--no-verify`, no interactive flags (`-i`), no config changes unless the user explicitly requests them.
+- **Prefer specialized tools**: Use Read/Edit/Write/Glob/Grep for file operations when possible — they produce structured output and are harder to misuse. Shell is fine as a fallback or when the specialized tool doesn't cover the use case.
+- **Git safety**: No `--force` pushes, no `--no-verify`, no interactive flags (`-i`).
+- **No interactive commands**: `vim`, `nano`, `less`, `more`, `git rebase -i` are blocked — they require a terminal the agent doesn't have.
 - **Path quoting**: Paths with spaces must be double-quoted.
 
 ---

@@ -12,13 +12,11 @@ import {
 const exec = promisify(execCallback)
 
 const BLOCKED_COMMAND_PATTERNS = [
-  /\b(cat|sed|awk)\b/,
-  /\b(vim|nano|less|more)\b/,
+  /\b(vim|nano|emacs|vi)\b/,
+  /\b(less|more)\b/,
   /\bgit\s+push\b.*(--force|-f)\b/,
   /\b--no-verify\b/,
   /\bgit\s+rebase\b.*\s-i\b/,
-  /\bgit\s+config\b/,
-  />\s*[^\s]/,
 ]
 
 function parseTimeout(value: unknown): number {
@@ -31,7 +29,7 @@ function parseTimeout(value: unknown): number {
 
 export const shellTool: Tool = {
   name: 'shell',
-  description: 'Run a shell command with timeout and output caps.',
+  description: 'Execute a shell command (bash). Use for: build, test, lint, git, install dependencies, run scripts, process text, and any system operation. Output is capped at ~50KB. Interactive commands (vim, less) are not supported.',
   timeoutMs: DEFAULT_TOOL_TIMEOUT_MS,
   parameters: {
     type: 'object',
