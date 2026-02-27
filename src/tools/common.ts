@@ -1,4 +1,5 @@
 import path from 'node:path'
+import os from 'node:os'
 import { access } from 'node:fs/promises'
 
 export function parsePositiveEnvInt(name: string, fallback: number): number {
@@ -16,16 +17,36 @@ export const MAX_LINE_LENGTH = parsePositiveEnvInt('JARVIS_TOOLS_MAX_LINE_LENGTH
 const WORKSPACE_ROOT = process.cwd()
 const readFiles = new Set<string>()
 
+function parseAllowedPaths(): string[] {
+  const env = process.env.JARVIS_ALLOWED_PATHS
+  if (env) {
+    return env.split(',').map(p => path.resolve(p.trim()))
+  }
+  return [os.homedir()]
+}
+
+const ALLOWED_PATHS = parseAllowedPaths()
+
 export function getWorkspaceRoot(): string {
   return WORKSPACE_ROOT
 }
 
+export function getAllowedPaths(): string[] {
+  return ALLOWED_PATHS
+}
+
 export function resolveWorkspacePath(inputPath: string): string {
   const resolvedPath = path.resolve(WORKSPACE_ROOT, inputPath)
-  const relativePath = path.relative(WORKSPACE_ROOT, resolvedPath)
 
-  if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
-    throw new Error(`Path is outside workspace: ${inputPath}`)
+  const isAllowed = ALLOWED_PATHS.some(allowed => {
+    const rel = path.relative(allowed, resolvedPath)
+    return !rel.startsWith('..') && !path.isAbsolute(rel)
+  })
+
+  if (!isAllowed) {
+    throw new Error(
+      `Path is outside allowed directories: ${inputPath} (allowed: ${ALLOWED_PATHS.join(', ')})`
+    )
   }
 
   return resolvedPath
