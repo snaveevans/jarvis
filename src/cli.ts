@@ -77,13 +77,26 @@ function formatMemoryRows(rows: Array<{
 
 const CUSTOM_SKILLS_DIR = path.join(process.cwd(), 'data/skills')
 
-function registerBuiltInSkills(skillRegistry: SkillRegistry, includeReminder: boolean): void {
+function registerBuiltInSkills(
+  skillRegistry: SkillRegistry,
+  includeReminder: boolean,
+  includeMemory: boolean = false
+): void {
   if (includeReminder) {
     skillRegistry.register({
       name: 'reminder',
       description: 'Set, list, and cancel time-based reminders',
       tools: ['schedule_message', 'list_scheduled_messages', 'cancel_scheduled_message'],
       filePath: 'src/skills/reminder.md',
+    })
+  }
+
+  if (includeMemory) {
+    skillRegistry.register({
+      name: 'memory',
+      description: 'Proactively remember and recall important facts, preferences, and decisions across conversations',
+      tools: ['memory_store', 'memory_search', 'memory_delete'],
+      filePath: 'src/skills/memory.md',
     })
   }
 
@@ -609,7 +622,7 @@ program
       const cliEndpoint = createCliEndpoint()
       const memoryTools = memoryService ? createMemoryTools(memoryService) : []
       const skillRegistry = createSkillRegistry()
-      registerBuiltInSkills(skillRegistry, false)
+      registerBuiltInSkills(skillRegistry, false, !!memoryService)
 
       const processStartMs = Date.now()
       const eventStore = createEventStore(config.tools.eventStoreSize)
@@ -763,7 +776,7 @@ program
       ]
 
       const skillRegistry = createSkillRegistry()
-      registerBuiltInSkills(skillRegistry, true)
+      registerBuiltInSkills(skillRegistry, true, !!memoryService)
 
       // Create schedule-message tools — dispatcher ref captured after creation
       let dispatcherRef: {
@@ -906,7 +919,7 @@ program
       ]
 
       const skillRegistry = createSkillRegistry()
-      registerBuiltInSkills(skillRegistry, true)
+      registerBuiltInSkills(skillRegistry, true, !!memoryService)
 
       // Create schedule-message tools — dispatcher ref captured after creation
       let dispatcherRef: {
