@@ -69,7 +69,7 @@
   },
   "tools": {
     "maxParallel": 5,
-    "maxIterations": 20,
+    "maxIterations": 50,
     "maxOutputCharacters": 50000,
     "maxOutputLines": 2000,
     "maxLineLength": 2000,
