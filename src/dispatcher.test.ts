@@ -71,7 +71,7 @@ function makeMockMemoryService(overrides: Partial<MemoryService> = {}): MemorySe
       byType: { preference: 0, fact: 0, conversation_summary: 0 },
     }),
     getAutoContext: async () => undefined,
-    summarizeAndStore: async () => 'stored',
+    updateById: async () => null,
     close: () => {},
     ...overrides,
   }

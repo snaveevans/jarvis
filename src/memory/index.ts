@@ -1,10 +1,10 @@
 export { createMemoryDb, resolveMemoryDir } from './db.ts'
+export { createMemoryRepository } from './repository.ts'
+export type { MemoryRepository } from './repository.ts'
 export { createMemoryService } from './service.ts'
 export type {
   MemoryService,
   MemoryServiceConfig,
-  SummarizeAndStoreInput,
-  SummarizeOutcome,
 } from './service.ts'
 export type {
   Memory,
@@ -29,11 +29,9 @@ export {
   clampLimit,
   summarizeTypeLabel,
   buildFtsQuery,
-  shouldSummarize,
   AUTO_CONTEXT_MAX_RESULTS,
   AUTO_CONTEXT_MAX_TOKENS,
   SEARCH_MAX_LIMIT,
   SEARCH_DEFAULT_LIMIT,
   RECENT_DEFAULT_LIMIT,
-  MIN_SUMMARY_TOKENS,
 } from './helpers.ts'

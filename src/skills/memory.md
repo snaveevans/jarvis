@@ -4,6 +4,7 @@ description: Automatically remember user preferences, decisions, and project con
 tools:
   - memory_store
   - memory_search
+  - memory_update
   - memory_delete
 ---
 
@@ -51,8 +52,8 @@ Search memory when the user's question or task might benefit from prior context 
 → Reply normally without mentioning the storage
 
 **User says**: "We're building this on Deno 2, not Node"
-→ Silently call `memory_store(content="Project uses Deno 2, not Node", type="fact", tags=["deno","runtime"])`
-→ If you had a conflicting Node memory, delete or supersede it
+→ If you have a conflicting Node memory (e.g. #5), call `memory_update(id=5, content="Project uses Deno 2, not Node", tags=["deno","runtime"])`
+→ If no existing memory to update, call `memory_store(content="Project uses Deno 2, not Node", type="fact", tags=["deno","runtime"])`
 
 **User starts**: "Help me with my Rust project"
 → First call `memory_search("rust project")` to see if you have relevant context before diving in
@@ -62,6 +63,7 @@ Search memory when the user's question or task might benefit from prior context 
 
 ## Housekeeping
 
-- Use `memory_delete` when the user corrects outdated information
+- When the user corrects previously stored information, use `memory_update` to replace the content in-place (keeps the same ID)
+- Use `memory_delete` only when information is completely obsolete and should be removed, not just corrected
 - Don't duplicate near-identical content — deduplication is automatic but still avoid redundant stores
 - If the user asks what you remember about them, search and summarize — don't just recite raw memory records

@@ -83,37 +83,45 @@ describe('MemoryService', () => {
     }
   })
 
-  test('summarizes non-trivial conversations into conversation_summary', async () => {
+  test('updates memory content by ID', async () => {
     const service = createMemoryService({ memoryDir })
-    const mockClient = {
-      async chat() {
-        return {
-          id: 'sum-1',
-          object: 'chat.completion',
-          created: Date.now(),
-          model: 'test-model',
-          choices: [{
-            index: 0,
-            message: { role: 'assistant' as const, content: 'Decided to keep auth logic modular.' },
-            finish_reason: 'stop',
-          }],
-        }
-      },
-    }
-
     try {
-      await service.summarizeAndStore({
-        client: mockClient,
-        model: 'test-model',
-        messages: [
-          { role: 'user', content: 'x'.repeat(900) },
-          { role: 'assistant', content: 'Got it.' },
-        ],
+      const { memory } = await service.store({
+        content: 'User prefers 2-space indentation.',
+        type: 'preference',
+        tags: ['formatting'],
       })
 
-      const summaries = await service.getRecent(10, 'conversation_summary')
-      assert.equal(summaries.length, 1)
-      assert.match(summaries[0].content, /auth logic modular/)
+      const updated = await service.updateById(memory.id, 'User prefers 4-space indentation for Python.', ['formatting', 'python'])
+      assert.ok(updated)
+      assert.equal(updated!.id, memory.id)
+      assert.equal(updated!.content, 'User prefers 4-space indentation for Python.')
+      assert.deepStrictEqual(updated!.tags, ['formatting', 'python'])
+
+      // Verify searchable via FTS
+      const results = await service.search({ query: '4-space indentation' })
+      assert.equal(results.length, 1)
+      assert.equal(results[0].id, memory.id)
+    } finally {
+      service.close()
+    }
+  })
+
+  test('updateById returns null for non-existent or archived memories', async () => {
+    const service = createMemoryService({ memoryDir })
+    try {
+      // Non-existent
+      const notFound = await service.updateById(9999, 'new content')
+      assert.equal(notFound, null)
+
+      // Archived
+      const { memory } = await service.store({
+        content: 'Will be archived.',
+        type: 'fact',
+      })
+      await service.deleteById(memory.id)
+      const archived = await service.updateById(memory.id, 'updated content')
+      assert.equal(archived, null)
     } finally {
       service.close()
     }

@@ -5,7 +5,7 @@ import path from 'node:path'
 import BetterSqlite3 from 'better-sqlite3'
 import type { Database as SqliteDatabase } from 'better-sqlite3'
 
-const CURRENT_SCHEMA_VERSION = 2
+const CURRENT_SCHEMA_VERSION = 3
 
 export interface MemoryDbHandle {
   db: SqliteDatabase
@@ -75,6 +75,14 @@ function ensureSchema(db: SqliteDatabase): void {
       db.exec('ALTER TABLE memories ADD COLUMN archive_reason TEXT')
     }
     db.exec('CREATE INDEX IF NOT EXISTS idx_memories_archived_at ON memories(archived_at)')
+  }
+
+  if (currentVersion < 3) {
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_memories_type_created
+      ON memories(type, created_at DESC)
+      WHERE archived_at IS NULL
+    `)
   }
 
   db.pragma(`user_version = ${CURRENT_SCHEMA_VERSION}`)

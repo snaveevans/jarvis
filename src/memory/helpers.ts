@@ -18,7 +18,6 @@ export const AUTO_CONTEXT_RECENT_LIMIT = parsePositiveEnvInt('JARVIS_MEMORY_AUTO
 export const SEARCH_MAX_LIMIT = parsePositiveEnvInt('JARVIS_MEMORY_SEARCH_MAX_LIMIT', 20)
 export const SEARCH_DEFAULT_LIMIT = parsePositiveEnvInt('JARVIS_MEMORY_SEARCH_DEFAULT_LIMIT', 5)
 export const RECENT_DEFAULT_LIMIT = parsePositiveEnvInt('JARVIS_MEMORY_RECENT_DEFAULT_LIMIT', 10)
-export const MIN_SUMMARY_TOKENS = parsePositiveEnvInt('JARVIS_MEMORY_MIN_SUMMARY_TOKENS', 200)
 
 const TOKEN_ESTIMATION_CHARS_PER_TOKEN = parsePositiveEnvInt('JARVIS_TOKEN_ESTIMATION_CHARS_PER_TOKEN', 4)
 
@@ -152,14 +151,3 @@ export function buildAutoContextBlock(
   return `Relevant context from memory:\n${lines.join('\n')}`
 }
 
-export function shouldSummarize(messages: Array<{ role: string, content: string }>, hadToolCalls: boolean): boolean {
-  if (hadToolCalls) {
-    return true
-  }
-
-  const totalTokens = messages
-    .filter(message => message.role !== 'system')
-    .reduce((sum, message) => sum + estimateTokenCount(message.content), 0)
-
-  return totalTokens >= MIN_SUMMARY_TOKENS
-}

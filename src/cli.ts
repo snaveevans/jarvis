@@ -95,7 +95,7 @@ function registerBuiltInSkills(
     skillRegistry.register({
       name: 'memory',
       description: 'Proactively remember and recall important facts, preferences, and decisions across conversations',
-      tools: ['memory_store', 'memory_search', 'memory_delete'],
+      tools: ['memory_store', 'memory_search', 'memory_update', 'memory_delete'],
       filePath: 'src/skills/memory.md',
     })
   }
@@ -250,11 +250,9 @@ program
       }
 
       const messages: ChatMessage[] = []
-      const summaryMessages: ChatMessage[] = []
 
       if (options.system) {
         messages.push({ role: 'system', content: options.system })
-        summaryMessages.push({ role: 'system', content: options.system })
       }
 
       const prompt = await buildPromptInput({
@@ -270,7 +268,6 @@ program
       }
 
       messages.push({ role: 'user', content: prompt })
-      summaryMessages.push({ role: 'user', content: prompt })
 
       if (options.stream) {
         process.stdout.write('Thinking...\n\n')
@@ -293,17 +290,6 @@ program
           }
         }
         process.stdout.write('\n')
-
-        if (memoryService && streamedContent.trim()) {
-          summaryMessages.push({ role: 'assistant', content: streamedContent })
-          await memoryService.summarizeAndStore({
-            client,
-            model,
-            messages: summaryMessages,
-            hadToolCalls: false,
-            source: `chat ${new Date().toISOString()}`,
-          })
-        }
       } else {
         const response = await client.chat(messages, {
           temperature: parseFloat(options.temperature),
@@ -312,17 +298,6 @@ program
 
         const content = response.choices[0]?.message?.content ?? ''
         console.log(client.toUserVisibleContent(content))
-
-        if (memoryService && content.trim()) {
-          summaryMessages.push({ role: 'assistant', content })
-          await memoryService.summarizeAndStore({
-            client,
-            model,
-            messages: summaryMessages,
-            hadToolCalls: false,
-            source: `chat ${new Date().toISOString()}`,
-          })
-        }
       }
     } catch (error) {
       if (error instanceof Error) {
