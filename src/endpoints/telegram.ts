@@ -126,17 +126,19 @@ export function createTelegramEndpoint(config: TelegramEndpointConfig): Endpoint
           ctx.replyWithChatAction('typing').catch(() => {})
         }, 4000)
 
-        try {
-          await handler({
-            text: ctx.message.text,
-            sessionId,
-            endpointKind: 'telegram',
-            timestamp: new Date(ctx.message.date * 1000),
-            metadata: { userId },
-          })
-        } finally {
+        // Process message without awaiting to allow concurrent processing
+        // This is critical for the "stop" command to work while another request is processing
+        handler({
+          text: ctx.message.text,
+          sessionId,
+          endpointKind: 'telegram',
+          timestamp: new Date(ctx.message.date * 1000),
+          metadata: { userId },
+        }).catch((error) => {
+          logger.error({ error: error instanceof Error ? error.message : String(error) }, 'Handler error')
+        }).finally(() => {
           clearInterval(typingInterval)
-        }
+        })
       })
 
       logger.info('Starting Telegram bot (polling mode)...')

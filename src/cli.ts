@@ -106,6 +106,13 @@ function registerBuiltInSkills(
     tools: ['introspect', 'read_logs', 'health_check'],
     filePath: 'src/skills/introspection.md',
   })
+
+  skillRegistry.register({
+    name: 'skill-builder',
+    description: 'Create custom skills to extend agent capabilities with focused, reusable instructions',
+    tools: ['create_skill', 'list_skills', 'remove_skill', 'read', 'write', 'edit'],
+    filePath: 'src/skills/skill-builder.md',
+  })
 }
 
 function createSkillTools(

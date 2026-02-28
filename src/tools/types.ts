@@ -13,6 +13,7 @@ export interface ToolExecutionContext {
   shellPool?: {
     exec(job: { command: string, cwd: string, timeout: number, maxBuffer: number }): Promise<{ stdout: string, stderr: string, exitCode: number, durationMs: number }>
   }
+  signal?: AbortSignal
 }
 
 export interface Tool {

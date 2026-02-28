@@ -5,10 +5,18 @@ import { parsePositiveEnvInt } from '../tools/common.ts'
 import { estimateTokenCount } from '../memory/helpers.ts'
 import type { ToolCall, ToolResult, ToolExecutionContext } from '../tools/types.ts'
 
+export class CancelledError extends Error {
+  constructor(message: string = 'Operation cancelled') {
+    super(message)
+    this.name = 'CancelledError'
+  }
+}
+
 const MAX_TOOL_ITERATIONS = parsePositiveEnvInt('JARVIS_TOOLS_MAX_ITERATIONS', 20)
 const DEFAULT_MAX_PARALLEL_TOOLS = parsePositiveEnvInt('JARVIS_TOOLS_MAX_PARALLEL', 5)
 const DEFAULT_MAX_TOOL_OUTPUT_TOKENS = parsePositiveEnvInt('JARVIS_TOOLS_MAX_OUTPUT_TOKENS', 4000)
 const DEFAULT_MAX_CONTEXT_TOKENS = parsePositiveEnvInt('JARVIS_TOOLS_MAX_CONTEXT_TOKENS', 24000)
+const DEFAULT_CLARIFICATION_CHECK_INTERVAL_MS = parsePositiveEnvInt('JARVIS_CLARIFICATION_CHECK_INTERVAL_MS', 1000)
 
 export type ChatWithToolsClient =
   Pick<LLMClient, 'chat'> & Partial<Pick<LLMClient, 'toUserVisibleContent'>>
@@ -48,6 +56,12 @@ export interface ChatWithToolsOptions {
    * Otherwise, returns a response asking user to continue.
    */
   autoContinue?: boolean
+  signal?: AbortSignal
+  /**
+   * Callback to check for new user messages (clarifications) mid-processing.
+   * Called periodically between iterations.
+   */
+  onCheckNewMessages?: () => Promise<ChatMessage[] | undefined>
 }
 
 function createProgressSummary(toolCalls: ToolCall[]): string {
@@ -328,6 +342,11 @@ export async function chatWithTools(
   while (iteration < maxIter) {
     iteration++
 
+    // Check for cancellation before proceeding
+    if (options.signal?.aborted) {
+      throw new CancelledError('Stopped by user')
+    }
+
     // Cap context before each LLM call to prevent overflow
     currentMessages = capContextMessages(currentMessages, maxContext)
 
@@ -362,12 +381,21 @@ export async function chatWithTools(
       tool_calls: choice.message.tool_calls,
     })
 
+    // Check for cancellation before executing tools
+    if (options.signal?.aborted) {
+      throw new CancelledError('Stopped by user')
+    }
+
     // Execute tool calls in parallel with concurrency limit
     const toolCalls = choice.message.tool_calls.map(tc => tc as ToolCall)
     allToolCalls.push(...toolCalls)
 
     const settlements = await withConcurrencyLimit(
       toolCalls.map((toolCall) => async () => {
+        // Check for cancellation before each tool execution
+        if (options.signal?.aborted) {
+          return { toolCall, result: { content: '', error: 'Stopped by user' } }
+        }
         const callStart = Date.now()
         const result = await executeToolFn(toolCall, options.toolContext)
         const durationMs = Date.now() - callStart
@@ -396,6 +424,19 @@ export async function chatWithTools(
           content: `Error: Tool execution failed unexpectedly`,
           tool_call_id: failedCall.id,
         })
+      }
+    }
+
+    // Check for new user messages (clarifications) if callback provided
+    if (options.onCheckNewMessages) {
+      try {
+        const newMessages = await options.onCheckNewMessages()
+        if (newMessages && newMessages.length > 0) {
+          // Add new messages to current conversation
+          currentMessages.push(...newMessages)
+        }
+      } catch {
+        // Silently ignore errors from the callback
       }
     }
 

@@ -108,6 +108,9 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
   let activeOperations = 0
   const idleResolvers = new Set<() => void>()
 
+  // Track active sessions for cancellation support
+  const activeSessions = new Map<string, { abortController: AbortController, isProcessing: boolean }>()
+
   // Build merged tool definitions and executor if we have extra tools
   let mergedToolOptions: { tools?: ToolDefinition[], executeTool?: (call: ToolCall, ctx?: ToolExecutionContext) => Promise<ToolResult> } = {}
 
@@ -234,6 +237,27 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
           return
         }
 
+        // Handle stop/wait command - cancel ongoing processing
+        const command = message.text.trim().toLowerCase()
+        if (command === 'stop' || command === 'wait') {
+          const activeSession = activeSessions.get(message.sessionId)
+          if (activeSession?.isProcessing) {
+            activeSession.abortController.abort()
+            await endpoint.send({
+              text: 'Stopping...',
+              sessionId: message.sessionId,
+              endpointKind: message.endpointKind,
+            })
+          } else {
+            await endpoint.send({
+              text: 'Nothing to stop.',
+              sessionId: message.sessionId,
+              endpointKind: message.endpointKind,
+            })
+          }
+          return
+        }
+
         const session = config.sessionStore.getOrCreate(message.sessionId, message.endpointKind)
 
         // Keep system prompt in sync so newly added skills become available without restart.
@@ -249,11 +273,16 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
         // Add user message
         config.sessionStore.addMessage(session.id, { role: 'user', content: message.text })
 
+        // Create abort controller for this session
+        const abortController = new AbortController()
+        activeSessions.set(message.sessionId, { abortController, isProcessing: true })
+
         const toolContext: ToolExecutionContext = {
           sessionId: message.sessionId,
           endpointKind: message.endpointKind,
           searchPool: config.searchPool,
           shellPool: config.shellPool,
+          signal: abortController.signal,
         }
         // Merge memory context into the system prompt rather than prepending a
         // separate system message. Some LLM APIs (e.g. MiniMax) reject multiple
@@ -271,7 +300,12 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
 
         try {
           const llmCallStart = Date.now()
+          
+          // Track message count to detect new clarifications
+          const initialMessageCount = session.messages.length
+          
           const response = await chatWithTools(config.client, llmMessages, {
+            signal: abortController.signal,
             model: config.model,
             ...mergedToolOptions,
             toolContext,
@@ -300,6 +334,23 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
                 durationMs: observation.durationMs,
                 iteration: observation.iteration,
               })
+            },
+            onCheckNewMessages: async () => {
+              // Check for new user messages added to session (clarifications)
+              const currentCount = session.messages.length
+              if (currentCount > initialMessageCount) {
+                // Return new messages (only user messages, not system/assistant/tool)
+                const newMessages = session.messages.slice(initialMessageCount)
+                const userMessages = newMessages.filter(m => m.role === 'user')
+                if (userMessages.length > 0) {
+                  logger.info(
+                    { sessionId: message.sessionId, count: userMessages.length },
+                    'Received clarification messages'
+                  )
+                  return userMessages
+                }
+              }
+              return undefined
             },
           })
 
@@ -350,26 +401,38 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
           const errorMessage = error instanceof Error ? error.message : String(error)
           const errorCode = (error as { code?: string }).code
           const statusCode = (error as { statusCode?: number }).statusCode
-          logger.error({ sessionId: message.sessionId, error: errorMessage }, 'Error processing message')
-          eventStore?.record({
-            type: 'error',
-            sessionId: message.sessionId,
-            category: 'dispatch',
-            message: errorMessage,
-            code: errorCode,
-            statusCode,
-          })
+          
+          // Handle cancellation specially
+          if (errorMessage === 'Stopped by user' || errorMessage === 'Operation cancelled') {
+            await endpoint.send({
+              text: 'Stopped.',
+              sessionId: message.sessionId,
+              endpointKind: message.endpointKind,
+            })
+          } else {
+            logger.error({ sessionId: message.sessionId, error: errorMessage }, 'Error processing message')
+            eventStore?.record({
+              type: 'error',
+              sessionId: message.sessionId,
+              category: 'dispatch',
+              message: errorMessage,
+              code: errorCode,
+              statusCode,
+            })
 
-          // Remove failed user message to keep history clean
-          session.messages.pop()
+            // Remove failed user message to keep history clean
+            session.messages.pop()
 
-          await endpoint.send({
-            text: `Sorry, something went wrong: ${errorMessage}`,
-            sessionId: message.sessionId,
-            endpointKind: message.endpointKind,
-          })
+            await endpoint.send({
+              text: `Sorry, something went wrong: ${errorMessage}`,
+              sessionId: message.sessionId,
+              endpointKind: message.endpointKind,
+            })
+          }
         }
       } finally {
+        // Clean up active session tracking
+        activeSessions.delete(message.sessionId)
         endOperation()
       }
     },
