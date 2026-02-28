@@ -83,6 +83,13 @@ Each decision follows this format:
 - **Context**: Latest Node with native TypeScript support. Types aid intent and understanding. npm ecosystem is extensive. No compilation step needed since Jarvis will write its own code.
 - **Consequences**: Fast iteration, type safety without build step, but requires recent Node version
 
+### Tighter memory integration — always-on recent context
+
+- **Date**: 2026-02-27
+- **Decision**: Enhance `getAutoContext` to always inject recent preference/fact memories alongside FTS results, increase auto-context budget (10 results / 1500 tokens), add memory-awareness to the system prompt, and improve tool descriptions to encourage proactive memory use.
+- **Context**: Memory was underused because FTS-only retrieval missed on generic messages ("hello", "what's next?"), the budget was too conservative (5/500), and the system prompt didn't mention memory at all. The LLM only learned about memory if it read the skill file on demand.
+- **Consequences**: User preferences and project facts are now visible to the LLM in most interactions. A shared `buildAutoContextBlock()` pure function eliminates code duplication between the in-process service and worker thread. The system prompt conditionally instructs the LLM to proactively store and search memory. Trade-off: slightly larger system prompts when memory is enabled.
+
 ### Autonomous agent identity and relaxed shell policy
 
 - **Date**: 2026-02-27

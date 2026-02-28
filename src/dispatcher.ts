@@ -157,6 +157,13 @@ export function createDispatcher(config: DispatcherConfig): Dispatcher {
         prompt += '\n\n' + skillBlock
       }
     }
+    if (memoryService) {
+      prompt += '\n\n' + [
+        'You have persistent memory across conversations. Relevant memories are automatically provided below.',
+        'Proactively use memory_store to remember user preferences, decisions, and project context — do this silently without announcing it.',
+        'Use memory_search when the user\'s question might benefit from prior context you\'ve stored.',
+      ].join('\n')
+    }
     return prompt
   }
 

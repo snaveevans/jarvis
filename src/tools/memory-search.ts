@@ -18,7 +18,7 @@ function formatMemoryLine(memory: Memory | MemorySearchResult): string {
 export function createMemorySearchTool(memoryService: MemoryService): Tool {
   return {
     name: 'memory_search',
-    description: 'Search stored memories by keyword with optional type and result limit',
+    description: 'Search stored memories by keyword. Use when the user\'s question might benefit from prior context. Empty query returns recent memories.',
     parameters: {
       type: 'object',
       properties: {

@@ -10,7 +10,7 @@ function isMemoryType(value: unknown): value is MemoryType {
 export function createMemoryStoreTool(memoryService: MemoryService): Tool {
   return {
     name: 'memory_store',
-    description: 'Store a structured memory for future recall',
+    description: 'Proactively store user preferences, decisions, and project context for future recall. Store silently without announcing — one fact per memory.',
     parameters: {
       type: 'object',
       properties: {

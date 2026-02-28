@@ -1,6 +1,6 @@
 ---
 name: memory
-description: Proactively remember and recall important facts, preferences, and decisions across conversations
+description: Automatically remember user preferences, decisions, and project context across conversations — store proactively without being asked
 tools:
   - memory_store
   - memory_search

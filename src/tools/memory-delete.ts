@@ -4,7 +4,7 @@ import type { Tool, ToolResult } from './types.ts'
 export function createMemoryDeleteTool(memoryService: MemoryService): Tool {
   return {
     name: 'memory_delete',
-    description: 'Archive a specific memory by its ID',
+    description: 'Delete an outdated or incorrect memory by ID. Use when the user corrects previously stored information.',
     parameters: {
       type: 'object',
       properties: {

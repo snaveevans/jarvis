@@ -173,4 +173,63 @@ describe('MemoryService', () => {
     const resolved = resolveMemoryDir('')
     assert.ok(resolved.endsWith(path.join('.jarvis')))
   })
+
+  test('getAutoContext returns recent preference/fact memories even when FTS misses', async () => {
+    const service = createMemoryService({ memoryDir })
+    try {
+      await service.store({
+        content: 'User prefers dark mode.',
+        type: 'preference',
+        tags: ['ui'],
+      })
+      await service.store({
+        content: 'Project uses PostgreSQL.',
+        type: 'fact',
+        tags: ['database'],
+      })
+
+      // "hello" won't match either memory via FTS
+      const context = await service.getAutoContext('hello')
+      assert.ok(context, 'Expected auto-context even for non-matching query')
+      assert.match(context!, /dark mode|PostgreSQL/)
+    } finally {
+      service.close()
+    }
+  })
+
+  test('getAutoContext deduplicates memories in both FTS and recent results', async () => {
+    const service = createMemoryService({ memoryDir })
+    try {
+      await service.store({
+        content: 'User prefers TypeScript strict mode.',
+        type: 'preference',
+        tags: ['typescript'],
+      })
+
+      // "TypeScript" will match via FTS, and the same memory is recent
+      const context = await service.getAutoContext('TypeScript')
+      assert.ok(context)
+      // Should only appear once
+      const matches = context!.match(/TypeScript strict mode/g)
+      assert.equal(matches?.length, 1, 'Memory should appear exactly once (deduplicated)')
+    } finally {
+      service.close()
+    }
+  })
+
+  test('getAutoContext excludes conversation_summary from recent baseline', async () => {
+    const service = createMemoryService({ memoryDir })
+    try {
+      await service.store({
+        content: 'Discussed project setup and deployment.',
+        type: 'conversation_summary',
+      })
+
+      // No FTS match and summaries should not be in recent baseline
+      const context = await service.getAutoContext('hello')
+      assert.equal(context, undefined, 'conversation_summary should not appear in recent baseline')
+    } finally {
+      service.close()
+    }
+  })
 })

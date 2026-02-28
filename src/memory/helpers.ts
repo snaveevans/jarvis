@@ -12,8 +12,9 @@ function parsePositiveEnvInt(name: string, fallback: number): number {
   return n > 0 ? n : fallback
 }
 
-export const AUTO_CONTEXT_MAX_RESULTS = parsePositiveEnvInt('JARVIS_MEMORY_AUTO_CONTEXT_MAX_RESULTS', 5)
-export const AUTO_CONTEXT_MAX_TOKENS = parsePositiveEnvInt('JARVIS_MEMORY_AUTO_CONTEXT_MAX_TOKENS', 500)
+export const AUTO_CONTEXT_MAX_RESULTS = parsePositiveEnvInt('JARVIS_MEMORY_AUTO_CONTEXT_MAX_RESULTS', 10)
+export const AUTO_CONTEXT_MAX_TOKENS = parsePositiveEnvInt('JARVIS_MEMORY_AUTO_CONTEXT_MAX_TOKENS', 1500)
+export const AUTO_CONTEXT_RECENT_LIMIT = parsePositiveEnvInt('JARVIS_MEMORY_AUTO_CONTEXT_RECENT_LIMIT', 5)
 export const SEARCH_MAX_LIMIT = parsePositiveEnvInt('JARVIS_MEMORY_SEARCH_MAX_LIMIT', 20)
 export const SEARCH_DEFAULT_LIMIT = parsePositiveEnvInt('JARVIS_MEMORY_SEARCH_DEFAULT_LIMIT', 5)
 export const RECENT_DEFAULT_LIMIT = parsePositiveEnvInt('JARVIS_MEMORY_RECENT_DEFAULT_LIMIT', 10)
@@ -106,6 +107,49 @@ export function buildFtsQuery(query: string): string {
   return terms
     .map(term => `"${term.replaceAll('"', '""')}"`)
     .join(' AND ')
+}
+
+export interface AutoContextItem {
+  id: number
+  content: string
+  type: MemoryType
+  tokenCount: number
+  createdAt: string
+}
+
+export function buildAutoContextBlock(
+  ftsResults: AutoContextItem[],
+  recentMemories: AutoContextItem[],
+  maxTokens: number = AUTO_CONTEXT_MAX_TOKENS,
+): string | undefined {
+  // Deduplicate: remove from recent any that FTS already returned
+  const ftsIds = new Set(ftsResults.map(r => r.id))
+  const dedupedRecent = recentMemories.filter(r => !ftsIds.has(r.id))
+
+  // FTS results first (query-relevant), then remaining recent memories
+  const combined = [...ftsResults, ...dedupedRecent]
+
+  if (combined.length === 0) {
+    return undefined
+  }
+
+  const lines: string[] = []
+  let tokenBudget = 0
+
+  for (const item of combined) {
+    if (tokenBudget + item.tokenCount > maxTokens) {
+      break
+    }
+    tokenBudget += item.tokenCount
+    const date = item.createdAt.slice(0, 10)
+    lines.push(`- [${summarizeTypeLabel(item.type)}, ${date}] ${item.content}`)
+  }
+
+  if (lines.length === 0) {
+    return undefined
+  }
+
+  return `Relevant context from memory:\n${lines.join('\n')}`
 }
 
 export function shouldSummarize(messages: Array<{ role: string, content: string }>, hadToolCalls: boolean): boolean {

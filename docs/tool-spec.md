@@ -238,7 +238,7 @@ Created via `createMemoryTools()` using `MemoryService` (`src/memory/service.ts`
 
 #### memory_search
 
-**Intent**: Search stored memories by keyword with optional filters.
+**Intent**: Search stored memories by keyword. Use when the user's question might benefit from prior context. Empty query returns recent memories.
 
 | Field | Detail |
 |---|---|
@@ -252,7 +252,7 @@ Created via `createMemoryTools()` using `MemoryService` (`src/memory/service.ts`
 
 #### memory_store
 
-**Intent**: Persist a typed memory for future recall.
+**Intent**: Proactively store user preferences, decisions, and project context for future recall. Store silently without announcing — one fact per memory.
 
 | Field | Detail |
 |---|---|
@@ -322,7 +322,7 @@ Created via `createMemoryTools()` using `MemoryService` (`src/memory/service.ts`
 
 ### 17. memory_delete
 
-**Intent**: Delete a specific memory entry by ID.
+**Intent**: Delete an outdated or incorrect memory by ID. Use when the user corrects previously stored information.
 
 | Field | Detail |
 |---|---|

@@ -9,10 +9,11 @@ import {
   toMemory,
   toSearchResult,
   clampLimit,
-  summarizeTypeLabel,
   buildFtsQuery,
+  buildAutoContextBlock,
   AUTO_CONTEXT_MAX_RESULTS,
   AUTO_CONTEXT_MAX_TOKENS,
+  AUTO_CONTEXT_RECENT_LIMIT,
   SEARCH_DEFAULT_LIMIT,
   RECENT_DEFAULT_LIMIT,
 } from '../memory/helpers.ts'
@@ -249,32 +250,22 @@ function handleGetStats(): unknown {
 
 function handleGetAutoContext(params: Record<string, unknown>): string | undefined {
   const query = params.query as string
-  const results = handleSearch({
+  const ftsResults = handleSearch({
     query,
     limit: AUTO_CONTEXT_MAX_RESULTS,
-  }) as Array<{ tokenCount: number, createdAt: string, type: string, content: string }>
+  }) as Array<{ id: number, tokenCount: number, createdAt: string, type: MemoryType, content: string }>
 
-  if (results.length === 0) {
-    return undefined
-  }
+  const recentRows = db.prepare(`
+    SELECT id, content, type, tags, source, created_at, token_count, archived_at, archive_reason
+    FROM memories
+    WHERE type IN ('preference', 'fact')
+      AND archived_at IS NULL
+    ORDER BY created_at DESC
+    LIMIT ?
+  `).all(AUTO_CONTEXT_RECENT_LIMIT) as MemoryRow[]
+  const recentMemories = recentRows.map(toMemory)
 
-  const lines: string[] = []
-  let tokenBudget = 0
-
-  for (const result of results) {
-    if (tokenBudget + result.tokenCount > AUTO_CONTEXT_MAX_TOKENS) {
-      break
-    }
-    tokenBudget += result.tokenCount
-    const date = result.createdAt.slice(0, 10)
-    lines.push(`- [${summarizeTypeLabel(result.type as MemoryType)}, ${date}] ${result.content}`)
-  }
-
-  if (lines.length === 0) {
-    return undefined
-  }
-
-  return `Relevant context from memory:\n${lines.join('\n')}`
+  return buildAutoContextBlock(ftsResults, recentMemories, AUTO_CONTEXT_MAX_TOKENS)
 }
 
 const handlers: Record<string, (params: Record<string, unknown>) => unknown> = {
