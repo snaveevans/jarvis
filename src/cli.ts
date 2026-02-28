@@ -27,6 +27,7 @@ import { createReadLogsTool } from './tools/read-logs.ts'
 import { createHealthCheckTool } from './tools/health-check.ts'
 import { createWebSearchTool } from './tools/web-search.ts'
 import { createSkillManagerTools } from './tools/skill-manager.ts'
+import { createSelfModifyTools } from './tools/self-modify.ts'
 import { createEventStore } from './telemetry/event-store.ts'
 import { getConfig, logConfig } from './config.ts'
 import { getToolDefinitions } from './tools/index.ts'
@@ -112,6 +113,13 @@ function registerBuiltInSkills(
     description: 'Create custom skills to extend agent capabilities with focused, reusable instructions',
     tools: ['create_skill', 'list_skills', 'remove_skill', 'read', 'write', 'edit'],
     filePath: 'src/skills/skill-builder.md',
+  })
+
+  skillRegistry.register({
+    name: 'self-modify',
+    description: 'Safely modify own source code with build/test gates, canary validation, and auto-revert',
+    tools: ['self_modify_start', 'self_modify_validate', 'self_modify_promote', 'self_modify_revert', 'self_modify_status', 'read', 'edit', 'write', 'shell'],
+    filePath: 'src/skills/self-modify.md',
   })
 }
 
@@ -769,7 +777,21 @@ program
         dataDir: 'data',
         logger: telegramLogger,
       })
-      const enabledTools = [...scheduleHandle.tools, ...memoryTools, ...webSearchTools, ...introspectionTools]
+      const selfModifyHandle = createSelfModifyTools({
+        dataDir: 'data',
+        logger: telegramLogger,
+        jarvisRoot: jarvisHome,
+        canaryPort: 3001,
+        cooldownMinutes: 10,
+        requestRestart: (code) => setTimeout(() => process.exit(code), 3000),
+      })
+      const enabledTools = [
+        ...scheduleHandle.tools,
+        ...selfModifyHandle.tools,
+        ...memoryTools,
+        ...webSearchTools,
+        ...introspectionTools,
+      ]
       const skillTools = createSkillTools(skillRegistry, enabledTools)
       const reloadResult = await skillRegistry.reloadCustomFromDir(CUSTOM_SKILLS_DIR)
       if (reloadResult.errors.length > 0) {
@@ -799,6 +821,7 @@ program
       dispatcher.registerEndpoint(telegramEndpoint)
 
       await scheduleHandle.initialize()
+      await selfModifyHandle.initialize()
       const stop = await dispatcher.start()
 
       let isShuttingDown = false
@@ -807,6 +830,7 @@ program
         isShuttingDown = true
 
         scheduleHandle.shutdown()
+        selfModifyHandle.shutdown()
         stop()
         await dispatcher.waitForIdle(5000)
         await dispatcher.flushMemoryWrites(5000)
@@ -912,7 +936,21 @@ program
         dataDir: 'data',
         logger,
       })
-      const enabledTools = [...scheduleHandle.tools, ...memoryTools, ...webSearchTools, ...introspectionTools]
+      const selfModifyHandle = createSelfModifyTools({
+        dataDir: 'data',
+        logger,
+        jarvisRoot: jarvisHome,
+        canaryPort: 3001,
+        cooldownMinutes: 10,
+        requestRestart: (code) => setTimeout(() => process.exit(code), 3000),
+      })
+      const enabledTools = [
+        ...scheduleHandle.tools,
+        ...selfModifyHandle.tools,
+        ...memoryTools,
+        ...webSearchTools,
+        ...introspectionTools,
+      ]
       const skillTools = createSkillTools(skillRegistry, enabledTools)
       const reloadResult = await skillRegistry.reloadCustomFromDir(CUSTOM_SKILLS_DIR)
       if (reloadResult.errors.length > 0) {
@@ -958,6 +996,7 @@ program
 
       // Initialize tools that need startup
       await scheduleHandle.initialize()
+      await selfModifyHandle.initialize()
 
       // Start all endpoints
       const stopEndpoints = await dispatcher.start()
@@ -989,6 +1028,7 @@ program
         logger.info('Shutting down...')
         cronScheduler?.stop()
         scheduleHandle.shutdown()
+        selfModifyHandle.shutdown()
         stopEndpoints()
         await dispatcher.waitForIdle(5000)
         await dispatcher.flushMemoryWrites(5000)

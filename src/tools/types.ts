@@ -14,6 +14,7 @@ export interface ToolExecutionContext {
     exec(job: { command: string, cwd: string, timeout: number, maxBuffer: number }): Promise<{ stdout: string, stderr: string, exitCode: number, durationMs: number }>
   }
   signal?: AbortSignal
+  requestRestart?: (exitCode: number) => void
 }
 
 export interface Tool {

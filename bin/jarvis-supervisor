@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Resolve the actual script location (follows symlinks)
+SCRIPT="$0"
+while [ -L "$SCRIPT" ]; do
+  DIR="$(cd -P "$(dirname "$SCRIPT")" && pwd)"
+  SCRIPT="$(readlink "$SCRIPT")"
+  case "$SCRIPT" in
+    /*) ;;
+    *) SCRIPT="$DIR/$SCRIPT" ;;
+  esac
+done
+DIR="$(cd -P "$(dirname "$SCRIPT")" && pwd)"
+JARVIS_ROOT="$(cd -P "$DIR/.." && pwd)"
+
+export JARVIS_HOME="${JARVIS_HOME:-$JARVIS_ROOT}"
+export NODE_ENV="${NODE_ENV:-development}"
+cd "$JARVIS_ROOT"
+
+STATE_FILE="$JARVIS_ROOT/data/supervisor-state.json"
+FAST_CRASH_THRESHOLD_SECS=10
+MAX_CONSECUTIVE_CRASHES=3
+CRASH_SLEEP_SECS=5
+
+# ---------- state helpers ----------
+
+ensure_data_dir() {
+  mkdir -p "$JARVIS_ROOT/data"
+}
+
+read_state_field() {
+  local field="$1"
+  local default="$2"
+  if [ -f "$STATE_FILE" ]; then
+    local val
+    val=$(node -e "try{const s=JSON.parse(require('fs').readFileSync('$STATE_FILE','utf-8'));console.log(s['$field']??'')}catch{}" 2>/dev/null || true)
+    echo "${val:-$default}"
+  else
+    echo "$default"
+  fi
+}
+
+write_state() {
+  local lastGoodCommit="$1"
+  local consecutiveCrashes="$2"
+  local lastCrashAt="$3"
+  ensure_data_dir
+  local tmp="${STATE_FILE}.tmp"
+  cat > "$tmp" <<EOFJSON
+{
+  "lastGoodCommit": "$lastGoodCommit",
+  "consecutiveCrashes": $consecutiveCrashes,
+  "lastCrashAt": $lastCrashAt
+}
+EOFJSON
+  mv "$tmp" "$STATE_FILE"
+}
+
+get_last_good_commit() {
+  read_state_field "lastGoodCommit" ""
+}
+
+get_consecutive_crashes() {
+  read_state_field "consecutiveCrashes" "0"
+}
+
+# ---------- rollback ----------
+
+rollback_to_commit() {
+  local commit="$1"
+  echo "[supervisor] Rolling back to commit $commit"
+  git checkout "$commit" -- . 2>/dev/null || git reset --hard "$commit"
+  echo "[supervisor] Rebuilding after rollback..."
+  npm run build
+  echo "[supervisor] Rollback complete"
+}
+
+# ---------- main loop ----------
+
+echo "[supervisor] Starting Jarvis supervisor (PID $$)"
+echo "[supervisor] JARVIS_ROOT=$JARVIS_ROOT"
+
+ALREADY_REVERTED=0
+
+while true; do
+  START_TIME=$(date +%s)
+
+  echo "[supervisor] Launching Jarvis..."
+  set +e
+  node "$JARVIS_ROOT/dist/cli.js" "$@"
+  EXIT_CODE=$?
+  set -e
+  END_TIME=$(date +%s)
+  RUNTIME=$((END_TIME - START_TIME))
+
+  echo "[supervisor] Jarvis exited with code $EXIT_CODE (ran for ${RUNTIME}s)"
+
+  # --- exit 0: clean shutdown ---
+  if [ "$EXIT_CODE" -eq 0 ]; then
+    echo "[supervisor] Clean shutdown. Exiting."
+    exit 0
+  fi
+
+  # --- exit 42: restart after self-modification promotion ---
+  if [ "$EXIT_CODE" -eq 42 ]; then
+    echo "[supervisor] Restart requested (self-modification promoted). Restarting immediately..."
+    write_state "$(get_last_good_commit)" "0" "null"
+    ALREADY_REVERTED=0
+    continue
+  fi
+
+  # --- exit 43: explicit rollback requested ---
+  if [ "$EXIT_CODE" -eq 43 ]; then
+    LAST_GOOD="$(get_last_good_commit)"
+    if [ -n "$LAST_GOOD" ]; then
+      echo "[supervisor] Rollback requested (exit 43)."
+      rollback_to_commit "$LAST_GOOD"
+      write_state "$LAST_GOOD" "0" "null"
+      ALREADY_REVERTED=0
+      continue
+    else
+      echo "[supervisor] Rollback requested but no lastGoodCommit recorded. Exiting."
+      exit 1
+    fi
+  fi
+
+  # --- any other exit: crash ---
+  CRASHES=$(get_consecutive_crashes)
+  CRASHES=$((CRASHES + 1))
+  LAST_GOOD="$(get_last_good_commit)"
+  write_state "$LAST_GOOD" "$CRASHES" "\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\""
+
+  echo "[supervisor] Crash #$CRASHES (max $MAX_CONSECUTIVE_CRASHES before auto-revert)"
+
+  # Fast crash detection: if process ran less than threshold, sleep to avoid tight loop
+  if [ "$RUNTIME" -lt "$FAST_CRASH_THRESHOLD_SECS" ]; then
+    echo "[supervisor] Fast crash detected (ran ${RUNTIME}s < ${FAST_CRASH_THRESHOLD_SECS}s). Sleeping ${CRASH_SLEEP_SECS}s..."
+    sleep "$CRASH_SLEEP_SECS"
+  fi
+
+  # Auto-revert after too many crashes
+  if [ "$CRASHES" -ge "$MAX_CONSECUTIVE_CRASHES" ]; then
+    if [ -n "$LAST_GOOD" ]; then
+      if [ "$ALREADY_REVERTED" -eq 1 ]; then
+        echo "[supervisor] Already reverted to $LAST_GOOD but still crashing. Manual intervention needed."
+        exit 1
+      fi
+
+      echo "[supervisor] $CRASHES consecutive crashes. Auto-reverting to $LAST_GOOD..."
+      rollback_to_commit "$LAST_GOOD"
+      write_state "$LAST_GOOD" "0" "null"
+      ALREADY_REVERTED=1
+      continue
+    else
+      echo "[supervisor] $CRASHES consecutive crashes but no lastGoodCommit recorded. Exiting."
+      exit 1
+    fi
+  fi
+
+  echo "[supervisor] Restarting after crash..."
+done
